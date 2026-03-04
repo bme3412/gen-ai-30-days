@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Day {{ day.day_number }}: {{ day.title }} | 30 Days of Agentic AI</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <span class="day-badge">Day {{ day.day_number }}</span>
+            <span class="nav-title">30 Days of Agentic AI</span>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="nav-link active">Demo</a>
+            <a href="/docs" class="nav-link">API Docs</a>
+        </div>
+    </nav>
+
+    <main class="container">
+        <header class="hero">
+            <h1>{{ day.title }}</h1>
+            <p class="hero-description">{{ day.description }}</p>
+        </header>
+
+        <!-- Vertical Selector Cards -->
+        <section class="vertical-selector">
+            <h2>Select Industry Vertical</h2>
+            <div class="vertical-cards">
+                {% for vertical in verticals %}
+                <button class="vertical-card"
+                        data-vertical="{{ vertical.id }}"
+                        style="--vertical-color: {{ vertical.color }}; --vertical-gradient: {{ vertical.gradient }}">
+                    <div class="vertical-icon">
+                        <i class="fas fa-{{ vertical.icon }}"></i>
+                    </div>
+                    <div class="vertical-info">
+                        <h3>{{ vertical.name }}</h3>
+                        <p>{{ vertical.description }}</p>
+                    </div>
+                </button>
+                {% endfor %}
+            </div>
+        </section>
+
+        <!-- Demo Interface (hidden until vertical selected) -->
+        <section class="demo-interface hidden" id="demo-interface">
+            <div class="demo-header">
+                <div class="selected-vertical">
+                    <span class="vertical-emoji" id="selected-emoji"></span>
+                    <span class="vertical-name" id="selected-name"></span>
+                </div>
+                <button class="btn-secondary" id="change-vertical">
+                    <i class="fas fa-exchange-alt"></i> Change Vertical
+                </button>
+            </div>
+
+            <div class="demo-grid">
+                <!-- Input Panel -->
+                <div class="panel input-panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-terminal"></i> Input</h3>
+                    </div>
+                    <div class="panel-body">
+                        <!-- Example prompts -->
+                        <div class="example-prompts">
+                            <label>Try an example:</label>
+                            <div class="prompt-chips" id="example-prompts"></div>
+                        </div>
+
+                        <!-- Custom input -->
+                        <div class="input-group">
+                            <label for="user-input">Or enter your own:</label>
+                            <textarea id="user-input" placeholder="Describe what you want the agent to do..."></textarea>
+                        </div>
+
+                        <!-- Sample data toggle -->
+                        <div class="sample-data-section">
+                            <button class="btn-text" id="toggle-sample-data">
+                                <i class="fas fa-database"></i> View Sample Data
+                            </button>
+                            <pre class="sample-data hidden" id="sample-data"></pre>
+                        </div>
+
+                        <button class="btn-primary" id="run-agent">
+                            <i class="fas fa-play"></i> Run Agent
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Output Panel -->
+                <div class="panel output-panel">
+                    <div class="panel-header">
+                        <h3><i class="fas fa-robot"></i> Agent Output</h3>
+                        <div class="output-actions">
+                            <button class="btn-icon" id="copy-output" title="Copy to clipboard">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="panel-body">
+                        <div class="output-placeholder" id="output-placeholder">
+                            <i class="fas fa-arrow-left"></i>
+                            <p>Select an industry and run the agent to see results</p>
+                        </div>
+                        <div class="output-content hidden" id="output-content">
+                            <div class="output-steps" id="output-steps"></div>
+                            <div class="output-result" id="output-result"></div>
+                        </div>
+                        <div class="output-loading hidden" id="output-loading">
+                            <div class="spinner"></div>
+                            <p>Agent is working...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Concept Explanation -->
+        <section class="concept-section">
+            <h2>About This Pattern</h2>
+            <div class="concept-content">
+                <p>{{ day.description }}</p>
+                <div class="concept-links">
+                    <a href="#" class="concept-link">
+                        <i class="fas fa-book"></i> Learn More
+                    </a>
+                    <a href="#" class="concept-link">
+                        <i class="fab fa-github"></i> View Code
+                    </a>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <p>30 Days of Agentic AI Challenge</p>
+    </footer>
+
+    <script>
+        // Pass server data to JS
+        window.APP_DATA = {
+            day: {{ day | tojson }},
+            verticals: {{ verticals | tojson }}
+        };
+    </script>
+    <script src="/static/app.js"></script>
+</body>
+</html>

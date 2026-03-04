@@ -1,0 +1,46 @@
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>30 Days of Agentic AI</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Newsreader:ital,opsz,wght@0,6..72,200..800;1,6..72,200..800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="grain-overlay"></div>
+
+  <nav id="navbar">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo" data-route="home">
+        <span class="logo-mark"></span>
+        <span class="logo-text">30 Days<br>Agentic AI</span>
+      </a>
+      <div class="nav-links">
+        <a href="#" data-route="home" class="active">Roadmap</a>
+        <a href="#" data-route="journal">Journal</a>
+        <a href="#" data-route="blog">Blog</a>
+        <a href="#" data-route="stats">Stats</a>
+      </div>
+    </div>
+  </nav>
+
+  <main id="app"></main>
+
+  <div id="modal-overlay" class="modal-overlay hidden">
+    <div class="modal">
+      <button class="modal-close" id="modal-close">&times;</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

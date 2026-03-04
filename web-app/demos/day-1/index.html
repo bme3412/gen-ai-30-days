@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 1: Research Agent Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="../../" class="back-link">&larr; Back to Roadmap</a>
+      <h1>Research Agent Demo</h1>
+      <p class="subtitle">Watch the OBSERVE &rarr; THINK &rarr; ACT &rarr; REFLECT loop in action</p>
+    </header>
+
+    <div class="demo-layout">
+      <!-- Main Visualization Area -->
+      <div class="main-area">
+        <div class="loop-viz">
+          <div class="loop-diagram">
+            <div class="phase-node" data-phase="observe">
+              <div class="phase-icon observe">O</div>
+              <span class="phase-label">Observe</span>
+            </div>
+            <span class="phase-arrow">&rarr;</span>
+            <div class="phase-node" data-phase="think">
+              <div class="phase-icon think">T</div>
+              <span class="phase-label">Think</span>
+            </div>
+            <span class="phase-arrow">&rarr;</span>
+            <div class="phase-node" data-phase="act">
+              <div class="phase-icon act">A</div>
+              <span class="phase-label">Act</span>
+            </div>
+            <span class="phase-arrow">&rarr;</span>
+            <div class="phase-node" data-phase="reflect">
+              <div class="phase-icon reflect">R</div>
+              <span class="phase-label">Reflect</span>
+            </div>
+          </div>
+
+          <div class="iteration-badge" id="iteration-badge">
+            Ready to start
+          </div>
+
+          <div class="steps-log" id="steps-log">
+            <div class="empty-state">
+              <div class="empty-state-icon">&#129302;</div>
+              <p>Enter your API key and a research question to see the agent loop in action</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="result-section" id="result-section" style="display: none;">
+          <div class="result-title">&#10003; Final Result</div>
+          <div class="result-content" id="result-content"></div>
+        </div>
+      </div>
+
+      <!-- Control Panel -->
+      <div class="control-panel">
+        <div class="panel-section api-section">
+          <div class="panel-title">API Configuration</div>
+          <div class="input-group">
+            <label for="api-key">OpenAI API Key</label>
+            <input type="password" id="api-key" placeholder="sk-...">
+            <small class="input-hint">Stored in browser only, never sent to any server except OpenAI</small>
+          </div>
+          <div class="input-group">
+            <label for="model">Model</label>
+            <select id="model">
+              <option value="gpt-4.1-2025-04-14">GPT-4.1 (fast, cheap)</option>
+              <option value="gpt-5-mini-2025-08-07">GPT-5 Mini (balanced)</option>
+              <option value="gpt-5.1-2025-11-13">GPT-5.1 (most capable)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title">Research Query</div>
+          <div class="input-group">
+            <label for="query">What do you want to research?</label>
+            <input type="text" id="query" placeholder="e.g., What are the benefits of agentic AI?">
+          </div>
+          <button type="button" class="btn btn-primary" id="run-btn">
+            <span>&#9654;</span> Run Agent
+          </button>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-title">Agent Settings</div>
+          <div class="input-group">
+            <label for="max-iterations">Max Iterations</label>
+            <select id="max-iterations">
+              <option value="2">2 iterations</option>
+              <option value="3" selected>3 iterations</option>
+              <option value="5">5 iterations</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <label for="agent-persona">System Prompt</label>
+            <textarea id="agent-persona">You are a research assistant. Your goal is to gather information, analyze it, and provide a comprehensive answer to the user's question. Be thorough but concise.</textarea>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-secondary" id="reset-btn">
+          Reset Demo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="agent.js"></script>
+</body>
+</html>
