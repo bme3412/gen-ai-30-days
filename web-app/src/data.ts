@@ -130,10 +130,11 @@ This foundational lesson introduces the core design pattern that underlies all a
       ],
 
       resources: [
-        { title: "AI Agentic Design Patterns with AutoGen", url: "https://learn.deeplearning.ai/courses/ai-agentic-design-patterns-with-autogen", type: "course" },
-        { title: "Building Agentic RAG with LlamaIndex", url: "https://learn.deeplearning.ai/courses/building-agentic-rag-with-llamaindex", type: "course" },
-        { title: "Anthropic's Building Effective Agents", url: "https://www.anthropic.com/research/building-effective-agents", type: "article" },
-        { title: "LangChain: What is an Agent?", url: "https://python.langchain.com/docs/concepts/agents/", type: "docs" }
+        { title: "AI Agentic Design Patterns with AutoGen", url: "https://learn.deeplearning.ai/courses/ai-agentic-design-patterns-with-autogen", type: "course", summaryPath: "data/day-1/summary-autogen.md" },
+        { title: "Building Agentic RAG with LlamaIndex", url: "https://learn.deeplearning.ai/courses/building-agentic-rag-with-llamaindex", type: "course", summaryPath: "data/day-1/summary-agentic-RAC-llamaindex.md" },
+        { title: "Anthropic's Building Effective Agents", url: "https://www.anthropic.com/research/building-effective-agents", type: "article", summaryPath: "data/day-1/summary-anthropic-building-agents.md" },
+        { title: "LangChain: What is an Agent?", url: "https://python.langchain.com/docs/concepts/agents/", type: "docs", summaryPath: "data/day-1/summary-langchain-agents.md" },
+        { title: "ReAct Paper", url: "https://arxiv.org/abs/2210.03629", type: "paper", summaryPath: "data/day-1/summary-reAct-paper.md" }
       ],
       localResources: [
         {
@@ -388,11 +389,21 @@ Return JSON: {{"is_complete": bool, "quality_score": 1-10, "improvements": []}}"
         "Always set iteration limits to prevent runaway agents"
       ],
       resources: [
-        { title: "AI Agentic Design Patterns with AutoGen", url: "https://learn.deeplearning.ai/courses/ai-agentic-design-patterns-with-autogen", type: "course", duration: "1h", difficulty: "beginner", description: "DeepLearning.AI course covering core agentic patterns" },
-        { title: "Building Agentic RAG with LlamaIndex", url: "https://learn.deeplearning.ai/courses/building-agentic-rag-with-llamaindex", type: "course", duration: "1h", difficulty: "intermediate", description: "Learn to build agents that retrieve and reason over documents" },
-        { title: "Anthropic's Building Effective Agents", url: "https://www.anthropic.com/research/building-effective-agents", type: "article", description: "Best practices and patterns from the Claude team" },
-        { title: "LangChain: What is an Agent?", url: "https://python.langchain.com/docs/concepts/agents/", type: "docs", description: "LangChain's conceptual guide to agents" },
-        { title: "ReAct Paper", url: "https://arxiv.org/abs/2210.03629", type: "paper", description: "The foundational research paper on reasoning + acting" }
+        { title: "AI Agentic Design Patterns with AutoGen", url: "https://learn.deeplearning.ai/courses/ai-agentic-design-patterns-with-autogen", type: "course", duration: "1h", difficulty: "beginner", description: "DeepLearning.AI course covering core agentic patterns", summaryPath: "data/day-1/summary-autogen.md" },
+        { title: "Building Agentic RAG with LlamaIndex", url: "https://learn.deeplearning.ai/courses/building-agentic-rag-with-llamaindex", type: "course", duration: "1h", difficulty: "intermediate", description: "Learn to build agents that retrieve and reason over documents", summaryPath: "data/day-1/summary-agentic-RAC-llamaindex.md" },
+        { title: "Anthropic's Building Effective Agents", url: "https://www.anthropic.com/research/building-effective-agents", type: "article", description: "Best practices and patterns from the Claude team", summaryPath: "data/day-1/summary-anthropic-building-agents.md" },
+        { title: "LangChain: What is an Agent?", url: "https://python.langchain.com/docs/concepts/agents/", type: "docs", description: "LangChain's conceptual guide to agents", summaryPath: "data/day-1/summary-langchain-agents.md" },
+        { title: "ReAct Paper", url: "https://arxiv.org/abs/2210.03629", type: "paper", description: "The foundational research paper on reasoning + acting", summaryPath: "data/day-1/summary-reAct-paper.md" }
+      ],
+      localResources: [
+        {
+          id: "autogen-comprehensive-notes",
+          title: "Comprehensive AutoGen Course Notes",
+          description: "Detailed notes covering all lessons from the AutoGen course: conversable agents, sequential chats, reflection, nested chats, tool use, code execution, and group chats",
+          filePath: "data/day-1/01-resource-autogen.md",
+          type: "notes",
+          estimatedTime: "30 min"
+        }
       ],
       faq: [
         {
@@ -1503,7 +1514,41 @@ export function getCompletedDays(): Set<number> {
 }
 
 export function getInProgressDays(): Set<number> {
-  return new Set(getAllEntries().filter(e => e.status === "in-progress").map(e => e.day));
+  // A day is "in progress" if it has ANY activity but is NOT reading-complete
+  const readingComplete = getCompletedReadingDays();
+  const inProgressDays = new Set<number>();
+
+  // Check all 30 days
+  for (let day = 1; day <= 30; day++) {
+    // Skip if already reading-complete
+    if (readingComplete.has(day)) continue;
+
+    // Check for any progress indicators:
+    // 1. Section items completed (concepts, takeaways)
+    const sectionProgress = getSectionProgressForDay(day, 'concept').length > 0 ||
+                           getSectionProgressForDay(day, 'takeaway').length > 0;
+
+    // 2. External resources completed
+    const resourceProgress = getCompletedResourcesForDay(day).length > 0;
+
+    // 3. Local resources viewed
+    const localResourceProgress = getLocalResourcesForDay(day).some(r =>
+      isLocalResourceCompleted(day, r.id)
+    );
+
+    // 4. Journal entry has content
+    const entry = getEntry(day);
+    const hasJournalContent = entry && (entry.body?.trim() || entry.microPost?.content);
+
+    // 5. Demo completed (for days with demos)
+    const demoProgress = isDemoCompleted(day);
+
+    if (sectionProgress || resourceProgress || localResourceProgress || hasJournalContent || demoProgress) {
+      inProgressDays.add(day);
+    }
+  }
+
+  return inProgressDays;
 }
 
 // ══════════════════════════════════════════════════════════════

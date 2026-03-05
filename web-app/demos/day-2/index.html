@@ -17,6 +17,33 @@
       <p class="subtitle">Interactive playground for understanding structured LLM outputs</p>
     </header>
 
+    <section class="demo-explanation">
+      <h2>What This Demo Teaches</h2>
+      <p>
+        LLMs naturally produce free-form text, but production applications need <strong>predictable, typed data structures</strong>. This demo explores three core concepts that make LLM outputs reliable and actionable.
+      </p>
+      <div class="explanation-grid">
+        <div class="explanation-card">
+          <div class="explanation-icon">&#128196;</div>
+          <h3>Extract Data</h3>
+          <p>See how schemas force LLMs to extract specific fields from unstructured text. The model outputs valid JSON matching your exact types&mdash;no parsing failures, no missing fields.</p>
+        </div>
+        <div class="explanation-card">
+          <div class="explanation-icon">&#9881;</div>
+          <h3>Function Calling</h3>
+          <p>Watch the complete tool-use flow: the model decides which function to call, generates arguments, your code executes it, and the model incorporates the results.</p>
+        </div>
+        <div class="explanation-card">
+          <div class="explanation-icon">&#128203;</div>
+          <h3>Schema Playground</h3>
+          <p>Experiment with JSON Schema syntax. Define types, constraints, and required fields. Test validation to understand how schemas guarantee output structure.</p>
+        </div>
+      </div>
+      <p class="explanation-note">
+        <strong>Key insight:</strong> Structured outputs are how agents ACT. Function calling lets the model express <em>intent to act</em> while your code controls execution&mdash;enabling safe, auditable AI systems.
+      </p>
+    </section>
+
     <!-- Tab Navigation -->
     <nav class="demo-tabs">
       <button class="tab-btn active" data-tab="extract">
