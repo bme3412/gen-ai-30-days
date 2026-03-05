@@ -447,9 +447,9 @@ function renderLearnContentSimple(learn: Learn, d: Day): string {
         <section class="resources-section">
           <h2>Resources</h2>
           <div class="resources-list-simple">
-            ${learn.resources.map(r => {
+            ${learn.resources.map((r, idx) => {
               const hasSummary = !!r.summaryPath;
-              const resourceId = `resource-simple-${d.day}-${encodeURIComponent(r.url).slice(0, 20)}`;
+              const resourceId = `resource-simple-${d.day}-${idx}-${encodeURIComponent(r.title).slice(0, 20)}`;
               return `
               <div class="resource-item-simple ${hasSummary ? 'has-summary' : ''}" data-resource-id="${resourceId}">
                 <div class="resource-row-simple">
@@ -864,10 +864,10 @@ function renderResourcesV2(resources: Learn['resources'], day: number): string {
     <div class="external-resources-section">
       <h4 class="external-resources-title">&#128279; External Resources</h4>
       <div class="resources-grid">
-        ${resources.map(r => {
+        ${resources.map((r, idx) => {
           const isCompleted = isResourceCompleted(day, r.url);
           const hasSummary = !!r.summaryPath;
-        const resourceId = `resource-${day}-${encodeURIComponent(r.url).slice(0, 20)}`;
+        const resourceId = `resource-${day}-${idx}-${encodeURIComponent(r.title).slice(0, 20)}`;
         return `
           <div class="resource-card ${isCompleted ? 'completed' : ''} ${hasSummary ? 'has-summary' : ''}" data-resource-id="${resourceId}">
             <div class="resource-row">

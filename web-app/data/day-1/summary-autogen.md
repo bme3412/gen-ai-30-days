@@ -1,84 +1,32 @@
 # AI Agentic Design Patterns with AutoGen
 
-AutoGen is a multi-agent conversational framework that enables you to create multiple agents with different roles and capabilities. Rather than building a single monolithic AI system, you create specialized agents—researcher, data collector, writer, executor—that work together, iteratively reviewing and improving results through conversation.
+**AutoGen** is a multi-agent conversational framework for creating specialized agents that work together through conversation. Rather than a single monolithic system, you create agents for different roles—researcher, writer, executor—that collaborate, critique, and iterate.
 
-The foundational building block is the ConversableAgent, an entity that can send and receive messages, perform actions, generate replies, and interact with other agents. You configure each agent with a name, system message defining its role, and settings for how it handles human input—never asking, always asking, or asking only when the conversation ends.
+The foundational building block is the **ConversableAgent**, an entity that sends/receives messages, performs actions, and generates replies. Configure each with a name, system message, and **human_input_mode**: `NEVER` (LLM only), `ALWAYS` (asks human before replying), or `TERMINATE` (asks only when conversation ends).
 
 ```python
-from autogen import ConversableAgent
-
-agent = ConversableAgent(
-    name="chatbot",
-    llm_config={"model": "gpt-4o-mini"},
-    human_input_mode="NEVER"
-)
-
-reply = agent.generate_reply(
-    messages=[{"content": "Tell me a joke", "role": "user"}]
-)
+agent = ConversableAgent(name="chatbot", llm_config={"model": "gpt-4o"}, human_input_mode="NEVER")
 ```
 
-Two-agent conversations let you define agents with different personas and have them interact. One agent initiates with `initiate_chat()`, specifying the recipient, initial message, and maximum turns. The chat result includes the full history, token usage and cost, and a summary. You can customize summaries using LLM reflection rather than just taking the last message, and define termination conditions based on message content rather than fixed turn counts.
+**Two-agent conversations** let agents with different personas interact. One initiates with `initiate_chat()`, specifying recipient, message, and max_turns. The result includes chat history, token cost, and summary. Define **termination conditions** based on message content rather than fixed turn counts.
 
-| Human Input Mode | Behavior |
-|------------------|----------|
-| NEVER | Agent uses LLM only, no human input |
-| ALWAYS | Always asks human before generating reply |
-| TERMINATE | Asks human only when conversation ends |
+**Sequential chats** run multiple conversations in sequence with context carrying forward. Each chat specifies a recipient and how to carry over context from previous chats—enabling step-by-step task execution where each step builds on previous results.
 
-Sequential chats run multiple conversations in sequence with context carrying forward. You define a chat queue where each entry specifies a recipient agent, message, and how to carry over context from previous chats. This enables step-by-step task execution—gather customer information, identify interests, create an engagement plan—where each step builds on previous context.
-
-The reflection pattern enables iterative improvement through writer-critic conversations. A writer agent generates content while a critic provides feedback, iterating until the critic says "APPROVED" or a turn limit is reached. Nested chats extend this by letting an agent consult other agents before responding—the writer might trigger conversations with an SEO expert and legal reviewer whenever it receives feedback from the main critic.
+The **reflection pattern** enables iterative improvement: a writer generates content, a critic provides feedback, they iterate until the critic says "APPROVED". **Nested chats** extend this—an agent can consult other agents (SEO expert, legal reviewer) before responding.
 
 ```python
-writer = ConversableAgent(
-    name="writer",
-    system_message="You are a writer. Write content based on feedback.",
-    llm_config=llm_config
-)
-
 critic = ConversableAgent(
     name="critic",
-    system_message="Provide feedback. When satisfied, say 'APPROVED'.",
-    llm_config=llm_config,
     is_termination_msg=lambda msg: "APPROVED" in msg["content"]
 )
-
-chat_result = writer.initiate_chat(
-    recipient=critic,
-    message="Write a blog post about AI agents",
-    max_turns=5
-)
 ```
 
-Tool use provides agents with callable functions they can invoke during conversations. You register functions with both a caller agent that suggests tool use and an executor agent that runs the actual code. The caller generates tool call requests, the executor runs them and returns results, enabling agents to access external data and perform calculations.
+**Tool use** provides agents with callable functions. Register functions with both a **caller** (suggests tool use) and **executor** (runs the code). **Code execution** lets agents write Python and run it in Docker for safe, sandboxed computation.
 
-Code execution lets agents write Python code and run it in a sandboxed environment. A coder agent writes code in markdown blocks, and an executor agent runs it using Docker for isolation. This enables dynamic computation—plotting stock prices, analyzing data, generating reports—with proper safety through containerization and timeouts.
-
-Group chats orchestrate multiple specialists working together. You create agents for different roles—planner, researcher, writer, reviewer—and add them to a GroupChat managed by a GroupChatManager. Speaker selection can be automatic (LLM decides who speaks next), round-robin, random, or controlled by custom logic that determines the next speaker based on the last one.
+**Group chats** orchestrate multiple specialists. Create agents for different roles, add them to a `GroupChat` managed by a `GroupChatManager`. **Speaker selection** can be automatic (LLM decides), round-robin, random, or custom logic.
 
 ```python
-from autogen import GroupChat, GroupChatManager
-
-group_chat = GroupChat(
-    agents=[planner, researcher, writer, reviewer],
-    messages=[],
-    max_round=10,
-    speaker_selection_method="auto"
-)
-
-manager = GroupChatManager(groupchat=group_chat, llm_config=llm_config)
-user_proxy.initiate_chat(manager, message="Create a report on AI trends")
+group_chat = GroupChat(agents=[planner, researcher, writer], speaker_selection_method="auto")
 ```
 
-| Pattern | When to Use |
-|---------|-------------|
-| Two-Agent Chat | Simple back-and-forth like debate or interview |
-| Sequential Chat | Step-by-step pipeline like customer onboarding |
-| Reflection | Iterative improvement like writing with review |
-| Nested Chat | Agent needs sub-consultations for complex research |
-| Tool Use | Need external functions for API calls or calculations |
-| Code Execution | Dynamic computation like data analysis or plotting |
-| Group Chat | Multi-expert collaboration like report generation |
-
-Best practices include defining each agent's role precisely in system messages, always specifying termination conditions, using Docker for code execution, monitoring costs through chat results, and matching the pattern complexity to your task requirements.
+Best practices: precise system messages for each role, always define termination conditions, use Docker for code execution, monitor costs, and match pattern complexity to task requirements.
