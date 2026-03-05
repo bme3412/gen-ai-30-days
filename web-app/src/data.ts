@@ -1398,8 +1398,643 @@ for block in response.content:
       relatedDays: [1, 3, 4, 6]
     }
   },
-  { day: 3,  phase: 1, title: "Building an Agent from Scratch",                 partner: "DeepLearning.AI",                    tags: ["python", "llm", "fundamentals"],
-    concept: "Implementing a basic agent loop with tool calling without frameworks" },
+  {
+    day: 3,
+    phase: 1,
+    title: "Building an Agent from Scratch",
+    partner: "DeepLearning.AI",
+    tags: ["python", "llm", "fundamentals"],
+    demoUrl: "demos/day-3/",
+    learn: {
+      overview: {
+        summary: "Build a complete agent using only Python and LLM APIs—no frameworks, no magic.",
+        fullDescription: `Today we build an agent from scratch. Not with LangChain. Not with LangGraph. Just Python, an LLM API, and about 150 lines of code.
+
+Why start here instead of reaching for frameworks? Because frameworks are abstractions, and abstractions hide details. When your agent misbehaves—and it will—you need to understand what's actually happening underneath. Is the LLM generating malformed output? Is the tool execution failing? Is the message history growing out of control? You can only diagnose these problems if you understand the raw mechanics.
+
+Building from scratch also teaches you what frameworks are abstracting. After implementing your own agent loop, you'll use LangGraph and CrewAI more effectively because you'll know what problems they're solving. You'll make better architectural decisions because you understand the tradeoffs.
+
+The agent we build today implements the OBSERVE-THINK-ACT-REFLECT pattern from Day 1 and uses the structured outputs and function calling from Day 2. We'll create an Agent class with message history, a tool registry mapping names to functions, a parser to extract actions from LLM output, and an execution loop that ties it all together.
+
+By the end of this day, you'll have a working agent that can use multiple tools to answer complex questions. More importantly, you'll understand every line of code that makes it work.`,
+        prerequisites: ["Day 1: Understanding the OBSERVE-THINK-ACT-REFLECT loop", "Day 2: Structured outputs and function calling basics", "Python fundamentals (classes, functions, dictionaries)"],
+        estimatedTime: "2-3 hours",
+        difficulty: "intermediate"
+      },
+      concepts: [
+        {
+          title: "Agent Class Anatomy",
+          description: `An agent class is surprisingly simple. At minimum, it needs three things:
+
+**1. An LLM client** - The connection to your model (OpenAI, Anthropic, etc.)
+
+**2. Message history** - A list that stores the conversation. This is the agent's working memory. Each turn adds messages: the assistant's response and, if a tool was called, the observation from that tool.
+
+**3. A system prompt** - Defines the agent's behavior and output format. This is where you specify how the agent should structure its responses so you can parse them reliably.
+
+\`\`\`python
+class Agent:
+    def __init__(self, system_prompt: str):
+        self.client = OpenAI()
+        self.system = system_prompt
+        self.messages = []  # Conversation history
+\`\`\`
+
+The key insight: message history IS the agent's context. The LLM has no memory between calls—it sees only what you send it. Managing this history well (what to include, what to summarize, when to truncate) is one of the most important aspects of agent design.`
+        },
+        {
+          title: "Tool Registry Pattern",
+          description: `Tools transform an LLM from a text generator into a system that can take action. The tool registry is simply a dictionary that maps tool names to callable functions.
+
+\`\`\`python
+def search_web(query: str) -> str:
+    return f"Results for: {query}"
+
+def calculate(expression: str) -> str:
+    return str(eval(expression))
+
+tools = {
+    "search": search_web,
+    "calculate": calculate,
+}
+\`\`\`
+
+When the agent decides to call "search", we look it up in the registry and execute the corresponding function. That's it—no magic.
+
+**Why a dictionary?** It makes dispatch simple and explicit. When you add a new tool, you add a function and register it. When you want to know what tools are available, you inspect the dictionary keys. When execution fails, you can log exactly which function was called with what arguments.
+
+Each tool should return a string (the observation). The agent will add this to the message history so the LLM can see the result on the next turn.`
+        },
+        {
+          title: "ReAct-Style Prompting",
+          description: `The system prompt is critical—it defines how the agent structures its output so you can parse it reliably. The ReAct (Reasoning + Acting) format is widely used:
+
+\`\`\`
+You are a helpful assistant with access to tools.
+
+Use this format:
+Thought: [your reasoning about what to do next]
+Action: tool_name(arguments)
+
+When you have the final answer:
+Thought: [your reasoning]
+Answer: [your response to the user]
+
+Available tools:
+- search(query): Search the web for information
+- calculate(expression): Evaluate math expressions
+\`\`\`
+
+**Why this format?**
+
+1. **Thought** makes the agent's reasoning explicit. This helps with debugging and makes outputs more interpretable.
+
+2. **Action** is a consistent pattern you can parse with regex or structured outputs. The model knows exactly how to request tool execution.
+
+3. **Answer** signals completion. When you see this, you know to stop the loop and return the result.
+
+The quality of your prompt directly impacts parsing reliability. Be explicit about the format, show examples, and specify exactly what tools are available.`
+        },
+        {
+          title: "Response Parsing",
+          description: `Parsing extracts structured information from the LLM's free-form output. This is where many agent implementations fail—models don't always follow format perfectly.
+
+**Regex approach** (simple, works for most cases):
+\`\`\`python
+import re
+
+def parse_action(response: str) -> tuple[str, str] | None:
+    match = re.search(r"Action:\\s*(\\w+)\\((.+?)\\)", response)
+    if match:
+        return (match.group(1), match.group(2).strip())
+    return None
+
+def parse_answer(response: str) -> str | None:
+    match = re.search(r"Answer:\\s*(.+)", response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+\`\`\`
+
+**Structured outputs approach** (more reliable):
+Use Day 2's structured outputs to guarantee valid format. Define a Pydantic model for the response and let the API enforce it.
+
+**Handle variations gracefully**. Models might output "action:" instead of "Action:", or add extra whitespace. Build flexibility into your parser—or use structured outputs to eliminate the problem entirely.`
+        },
+        {
+          title: "The Execution Loop",
+          description: `The execution loop is the agent's heartbeat. It implements OBSERVE-THINK-ACT-REFLECT:
+
+\`\`\`python
+def run(self, user_message: str, max_turns: int = 10) -> str:
+    self.messages.append({"role": "user", "content": user_message})
+
+    for turn in range(max_turns):
+        # OBSERVE + THINK: Call the LLM with full history
+        response = self._call_llm()
+        self.messages.append({"role": "assistant", "content": response})
+
+        # Check for completion
+        answer = self._parse_answer(response)
+        if answer:
+            return answer
+
+        # ACT: Parse and execute tool
+        action_result = self._parse_action(response)
+        if action_result:
+            action, args = action_result
+            observation = self._execute_tool(action, args)
+
+            # REFLECT: Add observation to history
+            self.messages.append({
+                "role": "user",
+                "content": f"Observation: {observation}"
+            })
+
+    return "Max turns reached."
+\`\`\`
+
+Each iteration: send history to LLM, check if done, parse action, execute tool, add result. The loop continues until the model produces an Answer or hits the turn limit.`
+        },
+        {
+          title: "Error Handling Patterns",
+          description: `Production agents must handle failures gracefully. The LLM should be able to recover from errors, not crash.
+
+**Unknown tools**: Return a helpful message listing available tools.
+\`\`\`python
+if action not in self.tools:
+    return f"Error: Unknown tool '{action}'. Available: {list(self.tools.keys())}"
+\`\`\`
+
+**Tool execution errors**: Catch exceptions and return them as observations. The model can then try a different approach.
+\`\`\`python
+try:
+    result = self.tools[action](args)
+except Exception as e:
+    result = f"Error: {action} failed with: {e}"
+\`\`\`
+
+**Parse failures**: When output can't be parsed, guide the model back on track.
+\`\`\`python
+if not action_result and not answer:
+    self.messages.append({
+        "role": "user",
+        "content": "Please respond with Action: or Answer: format."
+    })
+\`\`\`
+
+**Infinite loops**: Detect repetition and break out.
+\`\`\`python
+if recent_responses_are_identical():
+    return "Agent appears stuck. Please rephrase your question."
+\`\`\``
+        },
+        {
+          title: "Stop Conditions & Termination",
+          description: `Knowing when to stop is as important as knowing what to do. Multiple stop conditions prevent runaway agents:
+
+**1. Answer detected**: The model outputs "Answer:" signaling completion. This is the happy path.
+
+**2. Max turns reached**: Hard limit on iterations (typically 5-15). Prevents infinite loops and controls costs.
+
+**3. Max tokens exceeded**: Track cumulative token usage. Stop before burning through budget.
+
+**4. Timeout**: Wall-clock time limit. Some tasks shouldn't run forever.
+
+**5. Loop detection**: If the agent repeats the same response multiple times, it's stuck.
+
+\`\`\`python
+def run(self, message: str, max_turns=10, max_tokens=50000, timeout=300):
+    start_time = time.time()
+    total_tokens = 0
+
+    for turn in range(max_turns):
+        if time.time() - start_time > timeout:
+            return self._terminate("Timeout reached")
+        if total_tokens > max_tokens:
+            return self._terminate("Token budget exceeded")
+        if self._detect_loop():
+            return self._terminate("Agent appears stuck")
+        # ... normal execution
+\`\`\`
+
+When terminating early, consider asking the LLM for a partial answer based on what it's learned so far.`
+        }
+      ],
+      codeExamples: [
+        {
+          title: "Basic Agent Class",
+          language: "python",
+          category: "basic",
+          code: `from openai import OpenAI
+
+class Agent:
+    """A minimal agent with message history."""
+
+    def __init__(self, system_prompt: str):
+        self.client = OpenAI()
+        self.system = system_prompt
+        self.messages = []
+
+    def _call_llm(self) -> str:
+        """Send messages to LLM and get response."""
+        messages = [{"role": "system", "content": self.system}]
+        messages.extend(self.messages)
+
+        completion = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0
+        )
+        return completion.choices[0].message.content
+
+    def chat(self, user_message: str) -> str:
+        """Single-turn conversation."""
+        self.messages.append({"role": "user", "content": user_message})
+        response = self._call_llm()
+        self.messages.append({"role": "assistant", "content": response})
+        return response`,
+          explanation: "The foundation: an LLM client, system prompt, and message history. The _call_llm method prepends the system message and sends everything to the model."
+        },
+        {
+          title: "Tool Registry & Execution",
+          language: "python",
+          category: "basic",
+          code: `# Define tool functions
+def search_web(query: str) -> str:
+    """Search the web for information."""
+    # Production: call a real search API
+    return f"Top results for '{query}': Wikipedia article about {query}"
+
+def calculate(expression: str) -> str:
+    """Evaluate a math expression."""
+    try:
+        return str(eval(expression))
+    except Exception as e:
+        return f"Error: {e}"
+
+def get_weather(city: str) -> str:
+    """Get current weather."""
+    # Production: call a weather API
+    weathers = {"Paris": "72°F sunny", "Tokyo": "65°F cloudy", "NYC": "58°F rainy"}
+    return weathers.get(city, f"Weather unavailable for {city}")
+
+# Tool registry
+tools = {
+    "search": search_web,
+    "calculate": calculate,
+    "weather": get_weather,
+}
+
+# Execute tool by name
+def execute_tool(name: str, args: str) -> str:
+    if name not in tools:
+        return f"Error: Unknown tool '{name}'. Available: {list(tools.keys())}"
+    try:
+        return tools[name](args)
+    except Exception as e:
+        return f"Error: {e}"`,
+          explanation: "Tools are just functions. The registry maps names to callables. Error handling returns informative messages the LLM can use."
+        },
+        {
+          title: "Complete Agent with Tool Loop",
+          language: "python",
+          category: "intermediate",
+          code: `import re
+from openai import OpenAI
+
+class Agent:
+    def __init__(self, system_prompt: str, tools: dict = None):
+        self.client = OpenAI()
+        self.system = system_prompt
+        self.tools = tools or {}
+        self.messages = []
+
+    def _call_llm(self) -> str:
+        messages = [{"role": "system", "content": self.system}]
+        messages.extend(self.messages)
+        completion = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            temperature=0
+        )
+        return completion.choices[0].message.content
+
+    def _parse_action(self, response: str):
+        match = re.search(r"Action:\\s*(\\w+)\\((.+?)\\)", response, re.IGNORECASE)
+        if match:
+            return (match.group(1).lower(), match.group(2).strip())
+        return None
+
+    def _parse_answer(self, response: str):
+        match = re.search(r"Answer:\\s*(.+)", response, re.DOTALL)
+        return match.group(1).strip() if match else None
+
+    def _execute_tool(self, action: str, args: str) -> str:
+        if action not in self.tools:
+            return f"Error: Unknown tool '{action}'. Available: {list(self.tools.keys())}"
+        try:
+            return str(self.tools[action](args))
+        except Exception as e:
+            return f"Error: {e}"
+
+    def run(self, user_message: str, max_turns: int = 10) -> str:
+        self.messages.append({"role": "user", "content": user_message})
+
+        for turn in range(max_turns):
+            response = self._call_llm()
+            self.messages.append({"role": "assistant", "content": response})
+
+            answer = self._parse_answer(response)
+            if answer:
+                return answer
+
+            action_result = self._parse_action(response)
+            if action_result:
+                action, args = action_result
+                observation = self._execute_tool(action, args)
+                self.messages.append({
+                    "role": "user",
+                    "content": f"Observation: {observation}"
+                })
+            else:
+                self.messages.append({
+                    "role": "user",
+                    "content": "Please respond with Action: or Answer: format."
+                })
+
+        return "Max turns reached."
+
+# Usage
+PROMPT = """You are a helpful assistant with tools.
+Available tools:
+- calculate(expression): Evaluate math
+- weather(city): Get weather
+
+Format:
+Thought: [reasoning]
+Action: tool(args)
+
+When done:
+Answer: [response]"""
+
+agent = Agent(PROMPT, tools={"calculate": calculate, "weather": get_weather})
+result = agent.run("What is 25 * 17, and what's the weather in Paris?")
+print(result)`,
+          explanation: "The complete agent: parsing, tool execution, and loop control. Under 60 lines of core logic, fully functional for multi-tool queries."
+        },
+        {
+          title: "Production Agent with Error Handling",
+          language: "python",
+          category: "advanced",
+          code: `import re
+import time
+from openai import OpenAI
+
+class ProductionAgent:
+    def __init__(self, system_prompt: str, tools: dict, model: str = "gpt-4o"):
+        self.client = OpenAI()
+        self.system = system_prompt
+        self.tools = tools
+        self.model = model
+        self.messages = []
+        self.total_tokens = 0
+
+    def run(
+        self,
+        user_message: str,
+        max_turns: int = 10,
+        max_tokens: int = 50000,
+        timeout_seconds: int = 300
+    ) -> str:
+        start_time = time.time()
+        parse_failures = 0
+        self.messages.append({"role": "user", "content": user_message})
+
+        for turn in range(max_turns):
+            # Check stop conditions
+            if time.time() - start_time > timeout_seconds:
+                return self._graceful_exit("Timeout reached")
+            if self.total_tokens > max_tokens:
+                return self._graceful_exit("Token budget exceeded")
+            if self._detect_loop():
+                return self._graceful_exit("Agent appears stuck")
+
+            # Call LLM
+            response, tokens = self._call_llm_with_usage()
+            self.total_tokens += tokens
+            self.messages.append({"role": "assistant", "content": response})
+
+            # Check for answer
+            answer = self._parse_answer(response)
+            if answer:
+                return answer
+
+            # Parse action
+            action_result = self._parse_action(response)
+            if action_result:
+                parse_failures = 0
+                action, args = action_result
+                observation = self._execute_tool(action, args)
+                self.messages.append({
+                    "role": "user",
+                    "content": f"Observation: {observation}"
+                })
+            else:
+                parse_failures += 1
+                if parse_failures >= 3:
+                    return self._graceful_exit("Unable to parse agent responses")
+                self.messages.append({
+                    "role": "user",
+                    "content": "Please use exact format: Action: tool(args) or Answer: response"
+                })
+
+        return self._graceful_exit("Max turns reached")
+
+    def _detect_loop(self, window: int = 3) -> bool:
+        if len(self.messages) < window * 2:
+            return False
+        recent = [m["content"] for m in self.messages[-window:] if m["role"] == "assistant"]
+        return len(set(recent)) == 1 and len(recent) == window
+
+    def _graceful_exit(self, reason: str) -> str:
+        self.messages.append({
+            "role": "user",
+            "content": f"We need to stop ({reason}). Give your best answer based on what you've learned."
+        })
+        response, _ = self._call_llm_with_usage()
+        answer = self._parse_answer(response)
+        return answer if answer else f"Incomplete: {reason}"`,
+          explanation: "Production-ready: timeout handling, token budgets, loop detection, parse failure recovery, and graceful degradation."
+        }
+      ],
+      diagrams: [
+        {
+          title: "Agent Execution Loop",
+          type: "ascii",
+          content: `
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      AGENT EXECUTION LOOP                       │
+    └─────────────────────────────────────────────────────────────────┘
+
+         ┌──────────────┐
+         │  User Query  │
+         └──────┬───────┘
+                │
+                ▼
+    ┌───────────────────────┐
+    │   Add to messages[]   │◀───────────────────────────────────┐
+    └───────────┬───────────┘                                    │
+                │                                                 │
+                ▼                                                 │
+    ┌───────────────────────┐                                    │
+    │      OBSERVE          │  Read full message history          │
+    │    + THINK            │  Send to LLM                        │
+    └───────────┬───────────┘                                    │
+                │                                                 │
+                ▼                                                 │
+    ┌───────────────────────┐     Yes    ┌──────────────────┐    │
+    │   Answer: detected?   │───────────▶│   Return answer  │    │
+    └───────────┬───────────┘            └──────────────────┘    │
+                │ No                                              │
+                ▼                                                 │
+    ┌───────────────────────┐     No     ┌──────────────────┐    │
+    │   Action: detected?   │───────────▶│ Prompt for format│────┤
+    └───────────┬───────────┘            └──────────────────┘    │
+                │ Yes                                             │
+                ▼                                                 │
+    ┌───────────────────────┐                                    │
+    │        ACT            │  Look up tool in registry           │
+    │   Execute tool(args)  │  Call function with arguments       │
+    └───────────┬───────────┘                                    │
+                │                                                 │
+                ▼                                                 │
+    ┌───────────────────────┐                                    │
+    │      REFLECT          │  Format: "Observation: {result}"   │
+    │  Add to messages[]    │────────────────────────────────────┘
+    └───────────────────────┘`,
+          caption: "The agent loop: observe history, think via LLM, act with tools, reflect by adding results"
+        }
+      ],
+      exercises: [
+        {
+          title: "Build a Research Agent",
+          objective: "Create an agent that can search the web and synthesize information to answer questions",
+          steps: [
+            "Start with the basic Agent class from the code examples",
+            "Add a search tool that returns mock search results",
+            "Add a calculate tool for any math operations",
+            "Write a system prompt that instructs the agent to cite sources",
+            "Test with: 'What is the population of France and what is 15% of that number?'"
+          ],
+          hints: [
+            "The agent should call search first, then calculate",
+            "Include source attribution in the Answer format",
+            "Start with simpler queries before complex multi-step ones"
+          ]
+        },
+        {
+          title: "Add Conversation Memory",
+          objective: "Extend the agent to remember context across multiple user queries",
+          steps: [
+            "Modify the run() method to NOT clear message history between calls",
+            "Add a reset() method to clear history when needed",
+            "Test a multi-turn conversation: 'What's 10 + 5?' then 'Double that'",
+            "The agent should remember the previous answer",
+            "Add a summary tool that summarizes the conversation so far"
+          ],
+          hints: [
+            "The key is not resetting self.messages between run() calls",
+            "Consider max history length to prevent context overflow",
+            "Pronouns like 'that' should resolve to previous values"
+          ]
+        },
+        {
+          title: "Implement Retry Logic",
+          objective: "Make your agent more robust by adding automatic retries for tool failures",
+          steps: [
+            "Modify _execute_tool to accept a retry count parameter",
+            "If a tool fails, wait briefly and retry up to 3 times",
+            "Use exponential backoff: 1s, 2s, 4s delays",
+            "Only retry for transient errors (network, rate limits), not permanent ones",
+            "Log each retry attempt for debugging"
+          ],
+          hints: [
+            "time.sleep() for delays",
+            "Distinguish error types: some should retry, others shouldn't",
+            "Consider a @retry decorator pattern"
+          ]
+        }
+      ],
+      keyTakeaways: [
+        "An agent is just a loop: call LLM, parse action, execute tool, add result, repeat",
+        "Message history is the agent's memory—manage it carefully",
+        "The system prompt defines output format—make it explicit and parseable",
+        "Tools are just functions mapped in a dictionary—no magic required",
+        "Error handling should return informative messages, not crash",
+        "Multiple stop conditions prevent runaway execution: max turns, tokens, timeout, loops",
+        "Build from scratch first, then you'll understand what frameworks abstract",
+        "The OBSERVE-THINK-ACT-REFLECT pattern maps directly to the execution loop"
+      ],
+      resources: [
+        { title: "Agentic AI Course", url: "https://learn.deeplearning.ai/courses/agentic-ai", type: "course", duration: "6h", difficulty: "intermediate", description: "Andrew Ng's comprehensive course on building agents from first principles", summaryPath: "data/day-3/summary-deeplearning-agentic-ai.md" },
+        { title: "Build an Agent from Scratch (LangGraph Lesson)", url: "https://learn.deeplearning.ai/courses/ai-agents-in-langgraph/lesson/c1l2c/build-an-agent-from-scratch", type: "course", duration: "30m", difficulty: "beginner", description: "Focused lesson on implementing the ReAct pattern without frameworks", summaryPath: "data/day-3/summary-langgraph-scratch-lesson.md" },
+        { title: "OpenAI Function Calling", url: "https://platform.openai.com/docs/guides/function-calling", type: "docs", description: "Official documentation for OpenAI's function calling API", summaryPath: "data/day-2/summary-openai-function-calling.md" },
+        { title: "Anthropic Tool Use", url: "https://docs.anthropic.com/en/docs/build-with-claude/tool-use", type: "docs", description: "Claude's approach to tool use and function calling", summaryPath: "data/day-3/summary-anthropic-tool-use.md" }
+      ],
+      localResources: [
+        {
+          id: "agent-from-scratch-guide",
+          title: "Building an Agent from Scratch Guide",
+          description: "Comprehensive guide covering agent class design, tool registry, parsing, the execution loop, and production patterns",
+          filePath: "data/day-3/01-building-agent-from-scratch.md",
+          type: "notes",
+          estimatedTime: "45 min read"
+        }
+      ],
+      faq: [
+        {
+          question: "Why not just use LangChain or LangGraph?",
+          answer: "Frameworks add value, but they also add abstraction. When your agent misbehaves, you need to understand what's happening underneath to debug it. Building from scratch first teaches you the fundamentals. Then you can use frameworks more effectively—and know when you don't need them."
+        },
+        {
+          question: "How do I prevent infinite loops?",
+          answer: "Multiple stop conditions: max_turns limits iterations (typically 5-15), detect repeated outputs (loop detection), set token budgets, and add wall-clock timeouts. Never rely on just one condition."
+        },
+        {
+          question: "Should I use regex or structured outputs for parsing?",
+          answer: "Start with regex for simplicity—it works for most cases if your prompt is clear. Move to structured outputs (Day 2) when you need guaranteed format compliance or when you're seeing frequent parse failures. Structured outputs eliminate parsing errors entirely but require more setup."
+        },
+        {
+          question: "How do I handle tools that take a long time?",
+          answer: "Add timeouts to tool execution (using threading or asyncio). If a tool times out, return an error observation so the agent can try a different approach. Consider showing progress to the user for long-running operations."
+        },
+        {
+          question: "What's the right max_turns value?",
+          answer: "Start with 5-10 for simple tasks, 10-15 for complex ones. If your agent frequently hits the limit, either the task is too complex, the prompt needs refinement, or tools need better error messages. Monitor completion rates and adjust."
+        }
+      ],
+      applications: [
+        {
+          title: "Customer Support Agent",
+          description: "An agent with tools for looking up order status, checking inventory, processing refunds, and escalating to humans. The raw loop gives you full control over sensitive operations and audit logging."
+        },
+        {
+          title: "Research Assistant",
+          description: "Tools for web search, document retrieval, citation extraction, and fact-checking. The agent gathers information across sources and synthesizes answers with references."
+        },
+        {
+          title: "Code Review Agent",
+          description: "Tools for reading files, running tests, checking style, and searching documentation. The agent analyzes code changes and provides actionable feedback."
+        },
+        {
+          title: "Data Analysis Agent",
+          description: "Tools for querying databases, running calculations, and generating visualizations. The agent breaks down analytical questions and executes the steps to answer them."
+        }
+      ],
+      relatedDays: [1, 2, 4, 6]
+    }
+  },
   { day: 4,  phase: 1, title: "The ReAct Pattern: Reasoning + Acting",          partner: "DeepLearning.AI",                    tags: ["react", "reasoning", "tool-use"],
     concept: "Interleaving reasoning traces with actions for explainable decision-making" },
   { day: 5,  phase: 1, title: "Reflection & Self-Improvement Patterns",         partner: "IBM / Coursera",                     tags: ["reflection", "reflexion", "self-eval"],

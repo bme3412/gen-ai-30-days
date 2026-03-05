@@ -346,18 +346,23 @@ function renderDayPage(): string {
         </div>
       </header>
 
-      <!-- Main Content (Single Column, Readable) -->
-      <main class="day-content-simple">
-        ${hasLearnContent && learn ? renderLearnContentSimple(learn, dayData) : `
-          <div class="coming-soon-simple">
-            <h3>Content Coming Soon</h3>
-            <p>Educational materials for "${dayData.title}" are being prepared.</p>
-          </div>
-        `}
+      <!-- Layout with optional TOC sidebar -->
+      <div class="day-layout-wrapper">
+        ${hasLearnContent && learn ? renderSectionNav(learn, dayData) : ''}
 
-        <!-- Reading Complete Checkbox -->
-        ${renderReadingCheckbox(dayNum)}
-      </main>
+        <!-- Main Content -->
+        <main class="day-content-simple">
+          ${hasLearnContent && learn ? renderLearnContentSimple(learn, dayData) : `
+            <div class="coming-soon-simple">
+              <h3>Content Coming Soon</h3>
+              <p>Educational materials for "${dayData.title}" are being prepared.</p>
+            </div>
+          `}
+
+          <!-- Reading Complete Checkbox -->
+          ${renderReadingCheckbox(dayNum)}
+        </main>
+      </div>
 
       <!-- Simple Bottom Navigation -->
       <nav class="day-footer-nav">
@@ -379,6 +384,72 @@ function renderDayPage(): string {
   return html;
 }
 
+// ── Section Navigation (TOC Sidebar) ─────────────────
+function renderSectionNav(learn: Learn, d: Day): string {
+  const sections: { id: string; label: string; icon: string }[] = [];
+
+  // Build sections list based on available content
+  if (learn.overview?.fullDescription) {
+    sections.push({ id: 'overview', label: 'Overview', icon: '&#128196;' });
+  }
+  if (learn.diagrams?.length) {
+    sections.push({ id: 'diagrams', label: 'Diagrams', icon: '&#128202;' });
+  }
+  if (learn.concepts?.length) {
+    sections.push({ id: 'concepts', label: 'Concepts', icon: '&#128161;' });
+  }
+  if (learn.codeExamples?.length) {
+    sections.push({ id: 'code', label: 'Code', icon: '&#128187;' });
+  }
+  if (learn.keyTakeaways?.length) {
+    sections.push({ id: 'takeaways', label: 'Takeaways', icon: '&#10003;' });
+  }
+  if (learn.resources?.length) {
+    sections.push({ id: 'resources', label: 'Resources', icon: '&#128279;' });
+  }
+  if (learn.localResources?.length) {
+    sections.push({ id: 'local-resources', label: 'Guides', icon: '&#128221;' });
+  }
+  if (learn.faq?.length) {
+    sections.push({ id: 'faq', label: 'FAQ', icon: '&#10067;' });
+  }
+  if (learn.exercises?.length) {
+    sections.push({ id: 'exercises', label: 'Exercises', icon: '&#9998;' });
+  }
+  if (learn.applications?.length) {
+    sections.push({ id: 'applications', label: 'Applications', icon: '&#128640;' });
+  }
+
+  if (sections.length < 2) return ''; // Not enough sections to warrant nav
+
+  const navLinks = sections.map(s => `
+    <a href="#section-${s.id}" class="section-nav-link" data-section="${s.id}">
+      <span class="section-nav-icon">${s.icon}</span>
+      <span>${s.label}</span>
+    </a>
+  `).join('');
+
+  return `
+    <!-- Desktop sidebar -->
+    <aside class="section-nav" id="section-nav">
+      <div class="section-nav-header">
+        <span class="section-nav-title">On this page</span>
+      </div>
+      <nav class="section-nav-links">
+        ${navLinks}
+      </nav>
+    </aside>
+
+    <!-- Mobile floating button + dropdown -->
+    <button class="section-nav-mobile-toggle" id="section-nav-mobile-toggle" aria-label="Table of contents">
+      &#9776;
+    </button>
+    <nav class="section-nav-mobile" id="section-nav-mobile">
+      ${navLinks}
+    </nav>
+  `;
+}
+
 // ── Simplified Learn Content (Reading-focused) ───────
 function renderLearnContentSimple(learn: Learn, d: Day): string {
   const overview = learn.overview || {};
@@ -388,24 +459,26 @@ function renderLearnContentSimple(learn: Learn, d: Day): string {
       ${overview.summary ? `<p class="lead">${overview.summary}</p>` : ''}
 
       ${overview.fullDescription ? `
-        <div class="prose">
-          ${formatLearnMarkdown(overview.fullDescription)}
-        </div>
+        <section id="section-overview" class="content-section">
+          <div class="prose">
+            ${formatLearnMarkdown(overview.fullDescription)}
+          </div>
+        </section>
       ` : ''}
 
       ${learn.diagrams?.length ? `
-        <div class="diagram-box">
+        <section id="section-diagrams" class="content-section diagram-box">
           ${learn.diagrams.map(diag => `
             <figure>
               ${diag.title ? `<figcaption>${diag.title}</figcaption>` : ''}
               <pre>${escapeHtml(diag.content || '')}</pre>
             </figure>
           `).join('')}
-        </div>
+        </section>
       ` : ''}
 
       ${learn.concepts?.length ? `
-        <section class="concepts-section">
+        <section id="section-concepts" class="content-section concepts-section">
           <h2>Key Concepts</h2>
           ${learn.concepts.map((c, i) => `
             <div class="concept-item">
@@ -419,7 +492,7 @@ function renderLearnContentSimple(learn: Learn, d: Day): string {
       ` : ''}
 
       ${learn.codeExamples?.length ? `
-        <section class="code-section">
+        <section id="section-code" class="content-section code-section">
           <h2>Code Examples</h2>
           ${learn.codeExamples.map(ex => `
             <div class="code-block-simple">
@@ -435,7 +508,7 @@ function renderLearnContentSimple(learn: Learn, d: Day): string {
       ` : ''}
 
       ${learn.keyTakeaways?.length ? `
-        <section class="takeaways-section">
+        <section id="section-takeaways" class="content-section takeaways-section">
           <h2>Key Takeaways</h2>
           <ul>
             ${learn.keyTakeaways.map(t => `<li>${t}</li>`).join('')}
@@ -444,7 +517,7 @@ function renderLearnContentSimple(learn: Learn, d: Day): string {
       ` : ''}
 
       ${learn.resources?.length ? `
-        <section class="resources-section">
+        <section id="section-resources" class="content-section resources-section">
           <h2>Resources</h2>
           <div class="resources-list-simple">
             ${learn.resources.map((r, idx) => {
@@ -471,6 +544,68 @@ function renderLearnContentSimple(learn: Learn, d: Day): string {
                 ` : ''}
               </div>
             `}).join('')}
+          </div>
+        </section>
+      ` : ''}
+
+      ${learn.localResources?.length ? `
+        <section id="section-local-resources" class="content-section local-resources-section">
+          <h2>Guides & Notes</h2>
+          <div class="local-resources-list-simple">
+            ${learn.localResources.map(lr => `
+              <a href="#" class="local-resource-card-simple" data-action="open-local-resource" data-day="${d.day}" data-resource-id="${lr.id}">
+                <span class="local-resource-icon">&#128221;</span>
+                <div class="local-resource-info">
+                  <span class="local-resource-title">${lr.title}</span>
+                  ${lr.estimatedTime ? `<span class="local-resource-time">${lr.estimatedTime}</span>` : ''}
+                </div>
+                <span class="local-resource-arrow">&#8594;</span>
+              </a>
+            `).join('')}
+          </div>
+        </section>
+      ` : ''}
+
+      ${learn.faq?.length ? `
+        <section id="section-faq" class="content-section faq-section">
+          <h2>FAQ</h2>
+          <div class="faq-list">
+            ${learn.faq.map((item, i) => `
+              <details class="faq-item">
+                <summary class="faq-question">${item.question}</summary>
+                <div class="faq-answer prose">${formatLearnMarkdown(item.answer)}</div>
+              </details>
+            `).join('')}
+          </div>
+        </section>
+      ` : ''}
+
+      ${learn.exercises?.length ? `
+        <section id="section-exercises" class="content-section exercises-section">
+          <h2>Exercises</h2>
+          ${learn.exercises.map((ex, i) => `
+            <div class="exercise-item">
+              <div class="exercise-header">
+                <span class="exercise-num">${i + 1}</span>
+                <span class="exercise-title">${ex.title}</span>
+                ${ex.difficulty ? `<span class="exercise-difficulty ${ex.difficulty}">${ex.difficulty}</span>` : ''}
+              </div>
+              <div class="prose">${formatLearnMarkdown(ex.description)}</div>
+            </div>
+          `).join('')}
+        </section>
+      ` : ''}
+
+      ${learn.applications?.length ? `
+        <section id="section-applications" class="content-section applications-section">
+          <h2>Real-World Applications</h2>
+          <div class="applications-grid">
+            ${learn.applications.map(app => `
+              <div class="application-card">
+                <h4>${app.title}</h4>
+                <p>${app.description}</p>
+              </div>
+            `).join('')}
           </div>
         </section>
       ` : ''}
@@ -2159,6 +2294,51 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeModal();
 });
 
+// ── Scroll Spy for Section Navigation ──────────────
+let scrollSpyCleanup: (() => void) | null = null;
+
+function setupScrollSpy(): void {
+  // Clean up any existing scroll spy
+  if (scrollSpyCleanup) {
+    scrollSpyCleanup();
+    scrollSpyCleanup = null;
+  }
+
+  const sections = document.querySelectorAll<HTMLElement>('.content-section');
+  const navLinks = document.querySelectorAll<HTMLAnchorElement>('.section-nav-link');
+
+  if (sections.length === 0 || navLinks.length === 0) return;
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          const sectionId = entry.target.id;
+          navLinks.forEach(link => {
+            const href = link.getAttribute('href');
+            if (href === `#${sectionId}`) {
+              link.classList.add('active');
+            } else {
+              link.classList.remove('active');
+            }
+          });
+        }
+      });
+    },
+    {
+      rootMargin: '-20% 0px -70% 0px', // Trigger when section is in upper portion
+      threshold: 0
+    }
+  );
+
+  sections.forEach(section => observer.observe(section));
+
+  // Store cleanup function
+  scrollSpyCleanup = () => {
+    observer.disconnect();
+  };
+}
+
 // ── Event Delegation ───────────────────────────────
 function bindEvents(): void {
   // Navigate to day page
@@ -2419,8 +2599,8 @@ function bindEvents(): void {
     });
   });
 
-  // Section navigation
-  document.querySelectorAll<HTMLAnchorElement>(".section-nav-item").forEach(el => {
+  // Section navigation (TOC sidebar)
+  document.querySelectorAll<HTMLAnchorElement>(".section-nav-link").forEach(el => {
     el.addEventListener("click", (e) => {
       e.preventDefault();
       const sectionId = el.getAttribute("href")?.substring(1);
@@ -2428,11 +2608,34 @@ function bindEvents(): void {
       const section = document.getElementById(sectionId);
       if (section) {
         section.scrollIntoView({ behavior: "smooth", block: "start" });
-        document.querySelectorAll(".section-nav-item").forEach(n => n.classList.remove("active"));
+        document.querySelectorAll(".section-nav-link").forEach(n => n.classList.remove("active"));
         el.classList.add("active");
+        // Close mobile menu if open
+        document.getElementById("section-nav-mobile")?.classList.remove("open");
+        document.getElementById("section-nav-mobile-toggle")?.classList.remove("active");
       }
     });
   });
+
+  // Mobile TOC toggle
+  const mobileToggle = document.getElementById("section-nav-mobile-toggle");
+  const mobileNav = document.getElementById("section-nav-mobile");
+  if (mobileToggle && mobileNav) {
+    mobileToggle.addEventListener("click", () => {
+      mobileNav.classList.toggle("open");
+      mobileToggle.classList.toggle("active");
+    });
+    // Close on outside click
+    document.addEventListener("click", (e) => {
+      if (!mobileNav.contains(e.target as Node) && !mobileToggle.contains(e.target as Node)) {
+        mobileNav.classList.remove("open");
+        mobileToggle.classList.remove("active");
+      }
+    });
+  }
+
+  // Scroll spy for section navigation
+  setupScrollSpy();
 
   bindLessonTabs();
   bindLearnTabs();

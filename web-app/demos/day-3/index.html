@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Day 3: Building an Agent from Scratch</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="../../#day/3" class="back-link">&larr; Back to Day 3</a>
+      <h1>Building an Agent from Scratch</h1>
+      <p class="subtitle">Interactive workshop for building agents with pure Python</p>
+    </header>
+
+    <section class="demo-explanation">
+      <h2>What This Demo Teaches</h2>
+      <p>
+        Frameworks provide convenience, but understanding the raw mechanics is essential for debugging and customization. This demo walks you through building a <strong>complete agent using only Python and an LLM API</strong>&mdash;no LangChain, no LangGraph, no magic.
+      </p>
+      <div class="explanation-grid">
+        <div class="explanation-card">
+          <div class="explanation-icon">&#128736;</div>
+          <h3>Build Agent</h3>
+          <p>Construct an agent step-by-step: define the class, add tools, write the system prompt, and wire up the execution loop. See each component in isolation.</p>
+        </div>
+        <div class="explanation-card">
+          <div class="explanation-icon">&#9654;</div>
+          <h3>Run Agent</h3>
+          <p>Execute your agent with visual phase highlighting. Watch OBSERVE-THINK-ACT-REFLECT in action as the agent reasons through problems using tools.</p>
+        </div>
+        <div class="explanation-card">
+          <div class="explanation-icon">&#128269;</div>
+          <h3>Inspect Internals</h3>
+          <p>Peek inside the agent's state: message history, tool calls, parsed actions, and observations. Understand exactly what the agent sees and decides.</p>
+        </div>
+      </div>
+      <p class="explanation-note">
+        <strong>Key insight:</strong> An agent is just a loop&mdash;call the LLM, parse the action, execute the tool, add the result to history, repeat. The sophistication comes from how you handle each step.
+      </p>
+    </section>
+
+    <!-- Tab Navigation -->
+    <nav class="demo-tabs">
+      <button class="tab-btn active" data-tab="build">
+        <span class="tab-icon">&#128736;</span>
+        Build Agent
+      </button>
+      <button class="tab-btn" data-tab="run">
+        <span class="tab-icon">&#9654;</span>
+        Run Agent
+      </button>
+      <button class="tab-btn" data-tab="inspect">
+        <span class="tab-icon">&#128269;</span>
+        Inspect Internals
+      </button>
+    </nav>
+
+    <!-- Panel 1: Build Agent -->
+    <section id="build-panel" class="demo-panel active">
+      <div class="panel-header">
+        <h2>Build Your Agent</h2>
+        <p>Construct an agent component by component. Click each step to add it to the agent.</p>
+      </div>
+
+      <div class="build-layout">
+        <div class="build-steps">
+          <div class="build-step completed" data-step="1">
+            <div class="step-checkbox">&#10003;</div>
+            <div class="step-info">
+              <div class="step-title">1. Agent Class</div>
+              <div class="step-desc">Basic structure with message history</div>
+            </div>
+          </div>
+          <div class="build-step" data-step="2">
+            <div class="step-checkbox"></div>
+            <div class="step-info">
+              <div class="step-title">2. System Prompt</div>
+              <div class="step-desc">Define ReAct format and behavior</div>
+            </div>
+          </div>
+          <div class="build-step" data-step="3">
+            <div class="step-checkbox"></div>
+            <div class="step-info">
+              <div class="step-title">3. Tool Registry</div>
+              <div class="step-desc">Map tool names to functions</div>
+            </div>
+          </div>
+          <div class="build-step" data-step="4">
+            <div class="step-checkbox"></div>
+            <div class="step-info">
+              <div class="step-title">4. Response Parser</div>
+              <div class="step-desc">Extract actions from LLM output</div>
+            </div>
+          </div>
+          <div class="build-step" data-step="5">
+            <div class="step-checkbox"></div>
+            <div class="step-info">
+              <div class="step-title">5. Execution Loop</div>
+              <div class="step-desc">The core agent loop</div>
+            </div>
+          </div>
+
+          <button class="btn btn-secondary" id="reset-build-btn">Reset All</button>
+        </div>
+
+        <div class="code-preview">
+          <div class="code-header">
+            <span class="code-filename">agent.py</span>
+            <span class="code-badge" id="build-status">Step 1 of 5</span>
+          </div>
+          <pre class="code-content" id="build-code">from openai import OpenAI
+
+class Agent:
+    def __init__(self):
+        self.client = OpenAI()
+        self.messages = []
+
+    def _call_llm(self):
+        completion = self.client.chat.completions.create(
+            model="gpt-4o",
+            messages=self.messages,
+            temperature=0
+        )
+        return completion.choices[0].message.content</pre>
+          <div class="code-explanation" id="build-explanation">
+            <strong>Agent Class:</strong> The foundation. We store an OpenAI client and a message history list. The <code>_call_llm</code> method sends messages to the model and returns the response.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 2: Run Agent -->
+    <section id="run-panel" class="demo-panel">
+      <div class="panel-header">
+        <h2>Run Your Agent</h2>
+        <p>Execute the agent and watch the OBSERVE-THINK-ACT-REFLECT loop in action.</p>
+      </div>
+
+      <div class="run-layout">
+        <div class="run-input-area">
+          <div class="input-section">
+            <label>User Query</label>
+            <input type="text" id="agent-query" placeholder="Ask the agent something..." value="What is 25 * 17, and what's the weather in Paris?">
+          </div>
+
+          <div class="tools-section">
+            <label>Available Tools</label>
+            <div class="tools-list compact">
+              <div class="tool-chip">calculate</div>
+              <div class="tool-chip">weather</div>
+              <div class="tool-chip">search</div>
+            </div>
+          </div>
+
+          <div class="sample-buttons">
+            <span class="sample-label">Try queries:</span>
+            <button class="query-btn" data-query="math">Math</button>
+            <button class="query-btn" data-query="weather">Weather</button>
+            <button class="query-btn" data-query="multi">Multi-tool</button>
+          </div>
+
+          <button class="btn btn-primary" id="run-agent-btn">
+            <span>&#9654;</span> Run Agent
+          </button>
+
+          <div class="run-controls">
+            <label>
+              <input type="checkbox" id="slow-mode" checked>
+              Slow mode (see each step)
+            </label>
+            <div class="max-turns">
+              Max turns: <input type="number" id="max-turns" value="5" min="1" max="10">
+            </div>
+          </div>
+        </div>
+
+        <div class="run-visualization">
+          <div class="agent-loop-diagram">
+            <div class="loop-phase" id="phase-observe" data-phase="observe">
+              <div class="phase-icon">&#128065;</div>
+              <div class="phase-name">OBSERVE</div>
+              <div class="phase-desc">Read history</div>
+            </div>
+            <div class="loop-arrow">&rarr;</div>
+            <div class="loop-phase" id="phase-think" data-phase="think">
+              <div class="phase-icon">&#129504;</div>
+              <div class="phase-name">THINK</div>
+              <div class="phase-desc">LLM reasons</div>
+            </div>
+            <div class="loop-arrow">&rarr;</div>
+            <div class="loop-phase" id="phase-act" data-phase="act">
+              <div class="phase-icon">&#9881;</div>
+              <div class="phase-name">ACT</div>
+              <div class="phase-desc">Execute tool</div>
+            </div>
+            <div class="loop-arrow">&rarr;</div>
+            <div class="loop-phase" id="phase-reflect" data-phase="reflect">
+              <div class="phase-icon">&#128260;</div>
+              <div class="phase-name">REFLECT</div>
+              <div class="phase-desc">Add result</div>
+            </div>
+          </div>
+
+          <div class="iteration-badge">
+            Turn: <span id="turn-count">0</span> / <span id="max-turn-display">5</span>
+          </div>
+
+          <div class="execution-log" id="execution-log">
+            <div class="log-placeholder">Click "Run Agent" to start execution...</div>
+          </div>
+
+          <div class="final-result" id="final-result">
+            <!-- Shows final answer when complete -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Panel 3: Inspect Internals -->
+    <section id="inspect-panel" class="demo-panel">
+      <div class="panel-header">
+        <h2>Inspect Agent Internals</h2>
+        <p>Examine the agent's state: message history, parsed actions, and tool executions.</p>
+      </div>
+
+      <div class="inspect-layout">
+        <div class="inspect-sidebar">
+          <div class="inspect-section">
+            <h3>Agent State</h3>
+            <div class="state-item">
+              <span class="state-label">Messages:</span>
+              <span class="state-value" id="state-messages">0</span>
+            </div>
+            <div class="state-item">
+              <span class="state-label">Tool Calls:</span>
+              <span class="state-value" id="state-tool-calls">0</span>
+            </div>
+            <div class="state-item">
+              <span class="state-label">Turns:</span>
+              <span class="state-value" id="state-turns">0</span>
+            </div>
+            <div class="state-item">
+              <span class="state-label">Status:</span>
+              <span class="state-value" id="state-status">Idle</span>
+            </div>
+          </div>
+
+          <div class="inspect-section">
+            <h3>Last Action</h3>
+            <div class="action-display" id="last-action">
+              <div class="no-action">No action yet</div>
+            </div>
+          </div>
+
+          <div class="inspect-section">
+            <h3>Last Observation</h3>
+            <div class="observation-display" id="last-observation">
+              <div class="no-observation">No observation yet</div>
+            </div>
+          </div>
+
+          <button class="btn btn-secondary" id="clear-state-btn">Clear State</button>
+        </div>
+
+        <div class="message-history-area">
+          <div class="history-header">
+            <h3>Message History</h3>
+            <div class="history-filter">
+              <button class="filter-btn active" data-filter="all">All</button>
+              <button class="filter-btn" data-filter="user">User</button>
+              <button class="filter-btn" data-filter="assistant">Assistant</button>
+            </div>
+          </div>
+          <div class="message-list" id="message-list">
+            <div class="empty-history">
+              Run an agent query to see message history here.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="demo-footer">
+      <p>This demo uses simulated responses to demonstrate concepts. No API key required.</p>
+    </footer>
+  </div>
+
+  <script src="demo.js"></script>
+</body>
+</html>
