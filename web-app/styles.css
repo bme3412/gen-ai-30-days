@@ -7168,6 +7168,7 @@ body {
 /* Main Content */
 .day-content-simple {
   line-height: 1.7;
+  max-width: 720px;
 }
 
 .coming-soon-simple {

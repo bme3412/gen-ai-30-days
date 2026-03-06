@@ -5,106 +5,69 @@
 
 ---
 
-## Table of Contents
+## Why Build Without Frameworks?
 
-1. [Introduction: Why Build Without Frameworks?](#1-introduction-why-build-without-frameworks)
-2. [The Minimal Agent: Components Overview](#2-the-minimal-agent-components-overview)
-3. [Agent Class Design](#3-agent-class-design)
-4. [Tool Registry Pattern](#4-tool-registry-pattern)
-5. [System Prompt Engineering](#5-system-prompt-engineering)
-6. [Response Parsing Strategies](#6-response-parsing-strategies)
-7. [The Execution Loop](#7-the-execution-loop)
-8. [Error Handling & Edge Cases](#8-error-handling--edge-cases)
-9. [Stop Conditions & Termination](#9-stop-conditions--termination)
-10. [Putting It All Together](#10-putting-it-all-together)
-11. [Testing Your Agent](#11-testing-your-agent)
-12. [Common Pitfalls](#12-common-pitfalls)
-13. [When to Use Frameworks Instead](#13-when-to-use-frameworks-instead)
+Frameworks like LangChain, LangGraph, and CrewAI have made agent development accessible to developers who might otherwise never attempt it. They provide convenient abstractions, pre-built components, and established patterns that can get a prototype running in minutes. But this convenience extracts a price that becomes apparent the moment something goes wrong.
 
----
+When your LangChain agent produces unexpected output, you're left guessing at the cause. Is the output parser failing to extract the action? Is the context window overflowing, causing the model to lose track of earlier instructions? Is a tool silently throwing an exception that gets swallowed somewhere in the chain? The framework's abstractions, which seemed so helpful during the happy path, now obscure the very information you need to diagnose the problem. You find yourself adding print statements, reading framework source code, and performing trial-and-error debugging that consumes hours.
 
-## 1. Introduction: Why Build Without Frameworks?
+Building from scratch strips away these layers of abstraction. You see exactly what messages go to the API, exactly what comes back, exactly how parsing happens, and exactly where errors originate. This transparency isn't just useful for debugging—it fundamentally changes your understanding of what agents are and how they work.
 
-Frameworks abstract away the mechanics of agents. That's their value—and their cost. When your LangChain agent produces unexpected output, you need to understand what's happening at the raw loop level: Is parsing failing? Is context overflowing? Is the tool silently erroring? Without that understanding, debugging is guesswork.
+The benefits compound across several dimensions. You gain **complete control** over every aspect of agent behavior: how actions are parsed from model output, how errors are surfaced and handled, how conversation history accumulates over time, and precisely when execution should terminate. There are no framework-imposed limitations or opinionated defaults fighting against your requirements.
 
-Building from scratch gives you three things:
+You work with **minimal dependencies**—just an HTTP client for API calls and a JSON library for parsing responses. This simplicity eliminates version conflicts between framework components, avoids the churn of keeping up with rapidly evolving framework APIs, and reduces the surface area for security vulnerabilities. Your agent's behavior depends only on code you wrote and can inspect.
 
-**Complete control.** You decide how actions are parsed, how errors surface, how history accumulates, when execution stops. No fighting framework assumptions.
+Most importantly, you develop **transferable knowledge** that makes you effective with any framework. Every agent framework, regardless of its specific API, wraps the same fundamental primitives: message construction, API calls, response parsing, tool execution, and history management. Once you understand these primitives through direct implementation, frameworks become tools you choose deliberately rather than abstractions you depend on blindly. You can read framework source code and immediately understand what it's doing. You can debug framework behavior by recognizing which primitive is misbehaving. You can evaluate new frameworks by assessing how they handle each primitive.
 
-**Minimal dependencies.** One HTTP client, one JSON library. No version conflicts, no framework churn.
-
-**Transferable knowledge.** Every framework wraps the same primitives: message threading, tool dispatch, loop control. Master the raw form and you'll use any framework more effectively.
-
-### What We'll Build
-
-A working agent in under 150 lines of Python:
-
-- Maintains conversation history (the OBSERVE from Day 1)
-- Routes to tools based on LLM decisions (connecting Day 2's function calling)
-- Parses action directives from free-form output
-- Handles errors without crashing
-- Terminates when appropriate
-
-This implements the OBSERVE-THINK-ACT-REFLECT loop from Day 1 using the structured tool calling patterns from Day 2—the bridge from theory to working code.
+By the end of this lesson, you'll have a working agent in under 150 lines of Python. It will maintain conversation history (implementing Day 1's OBSERVE pattern), route to tools based on LLM decisions (using Day 2's function calling concepts), parse action directives from model output, handle errors gracefully, and terminate when appropriate. This is the bridge from theory to working code.
 
 ---
 
-## 2. The Minimal Agent: Components Overview
+## The Anatomy of an Agent
 
-Strip away the abstractions and an agent is just a loop: ask the LLM what to do, do it, repeat. Four components make this work.
+Strip away the abstractions and marketing language, and an agent reveals itself as a remarkably simple construct: ask the LLM what to do, do it, ask again. This loop continues until the model decides it has accomplished the task and provides a final answer. Four components make this work, each with a specific responsibility that directly maps to the concepts we explored in Days 1 and 2.
 
-### Core Components
+### The System Prompt
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         AGENT                                    │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│   ┌──────────────┐    ┌──────────────┐    ┌──────────────┐     │
-│   │   System     │    │   Message    │    │    Tool      │     │
-│   │   Prompt     │    │   History    │    │   Registry   │     │
-│   └──────────────┘    └──────────────┘    └──────────────┘     │
-│                                                                  │
-│   ┌─────────────────────────────────────────────────────────┐   │
-│   │                    EXECUTION LOOP                        │   │
-│   │                                                          │   │
-│   │   ┌─────────┐    ┌─────────┐    ┌─────────┐            │   │
-│   │   │  Call   │───▶│  Parse  │───▶│ Execute │            │   │
-│   │   │  LLM    │    │ Action  │    │  Tool   │            │   │
-│   │   └─────────┘    └─────────┘    └────┬────┘            │   │
-│   │        ▲                              │                  │   │
-│   │        │         ┌─────────┐          │                  │   │
-│   │        └─────────│  Add    │◀─────────┘                  │   │
-│   │                  │ Result  │                             │   │
-│   │                  └─────────┘                             │   │
-│   └─────────────────────────────────────────────────────────┘   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+The **system prompt** defines the agent's persona, capabilities, and—most critically—its output format. Think of it as a contract between your code and the model. Your parsing logic expects responses in a specific structure; the system prompt is where you establish that expectation.
 
-### System Prompt
+A well-crafted system prompt accomplishes several things simultaneously. It tells the model what role it's playing ("You are a helpful research assistant"). It enumerates the tools available and explains when each should be used ("Use search when you need current information; use calculate for mathematical operations"). It specifies the exact output format the model should follow, often with examples to eliminate ambiguity. And it establishes termination conditions—how the model should signal that it's finished and ready to deliver a final answer.
 
-Defines persona, capabilities, and—critically—output format. The model needs to know exactly how to structure responses so you can parse them. This is where the "contract" between your code and the LLM gets established.
+The precision of your format specification directly determines parsing reliability. Vague instructions like "respond with your reasoning and then your action" invite the model to improvise, producing outputs that your regex or JSON parser can't handle. Explicit specifications like "Always format actions as `Action: tool_name(arguments)`" give the model a clear target that's easy to match consistently.
 
 ### Message History
 
-The agent's working memory. Each turn appends the LLM's response and any tool observations. On every API call, the model sees the full history—this is how it maintains context (the OBSERVE phase).
+The **message history** serves as the agent's working memory. Each turn of the conversation appends new entries: the user's request, the assistant's reasoning and action, the observation from tool execution, and so on. When you make an API call, you send the full history, giving the model complete context about what has happened so far.
 
-### Tool Registry
+This is the OBSERVE phase from Day 1 made concrete. The model doesn't retain state between API calls—it has no memory of previous interactions unless you explicitly include them in the message list. By accumulating history, you create the illusion of a continuous conversation with an agent that remembers what it has done and what it has learned.
 
-A dictionary mapping names to callables. When the LLM says "search", this tells your code which Python function to run. Tools are ordinary functions; the intelligence is in how the LLM decides to invoke them (connecting to Day 2's function calling).
+History management involves trade-offs that become apparent in longer conversations. Full history provides complete context but grows expensive as token counts increase. Eventually, you'll exceed context limits or find that important early instructions get "lost" as the model pays more attention to recent messages. Production agents often implement sliding windows (keeping only the last N turns), summarization (compressing old context into summaries), or retrieval (storing history externally and fetching relevant portions). For learning purposes, full history is simplest and works well for short interactions.
 
-### Execution Loop
+### The Tool Registry
 
-The agent's heartbeat: call LLM → parse response → execute tool → append observation → repeat. Continues until the model produces a final answer or hits a stop condition. This is the THINK-ACT-REFLECT cycle made concrete.
+The **tool registry** maps tool names to Python functions. When the LLM says "search," your registry tells the code which function to execute. The registry is typically implemented as a simple dictionary: `{"search": search_function, "calculate": calc_function}`.
+
+Tools themselves are ordinary Python functions with nothing special about them. They take arguments, perform some operation, and return a string result. The "intelligence" lies entirely in how the LLM decides when to invoke them—the tool functions are just the capabilities you're offering.
+
+This separation of concerns is powerful. You can develop and test tools independently of the agent. You can swap tool implementations without changing agent logic. You can add new tools by simply registering new functions. The agent doesn't need to know anything about what tools do; it only needs to know their names and how to pass the results back to the model.
+
+### The Execution Loop
+
+The **execution loop** is the agent's heartbeat, the code that makes the OBSERVE-THINK-ACT-REFLECT cycle actually run. It orchestrates all the other components: calling the LLM with current history, parsing the response to determine what action was requested, executing that action through the tool registry, formatting the result as an observation, appending everything to history, and deciding whether to continue or terminate.
+
+The loop continues until one of several conditions is met: the model produces a final answer (indicating it believes the task is complete), the loop hits a maximum iteration limit (preventing runaway execution), or some error condition makes continuation impossible. Each iteration represents one full cycle of the agentic pattern we explored in Day 1.
+
+Understanding the execution loop is essential because it's where most agent failures originate. Parsing errors, infinite loops, context overflow, tool failures—all of these manifest in the execution loop. When you've built the loop yourself, debugging these issues becomes straightforward: you can log each step, inspect message contents, and pinpoint exactly where things go wrong.
 
 ---
 
-## 3. Agent Class Design
+## Building the Agent Class
 
-We'll build the Agent class incrementally. Start minimal, add complexity only as needed.
+We'll construct the Agent class incrementally, starting with the absolute minimum viable implementation and adding complexity only when the simpler version proves insufficient. This approach mirrors how you should build agents in practice: start simple, test, and elaborate only in response to actual failures.
 
-### Minimal Structure
+### The Foundation
+
+The simplest possible agent needs just three things: a client for making API calls, a system prompt defining behavior, and a list to hold message history. With these components, we can implement a basic conversational assistant that maintains context across turns.
 
 ```python
 from openai import OpenAI
@@ -115,286 +78,231 @@ class Agent:
         self.system = system_prompt
         self.messages = []
 
-    def __call__(self, user_message: str) -> str:
-        """Process a user message and return the agent's response."""
-        self.messages.append({"role": "user", "content": user_message})
+    def __call__(self, message: str) -> str:
+        self.messages.append({"role": "user", "content": message})
         response = self._call_llm()
         self.messages.append({"role": "assistant", "content": response})
         return response
 
     def _call_llm(self) -> str:
-        """Make an API call to the LLM."""
         messages = [{"role": "system", "content": self.system}] + self.messages
         completion = self.client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            temperature=0  # Deterministic for consistent behavior
+            model="gpt-4o", messages=messages, temperature=0
         )
         return completion.choices[0].message.content
 ```
 
-This is a conversational assistant—it maintains history for multi-turn conversations but can't act on the world. To become an agent, it needs tools.
+Let's trace through what happens when you call this agent. The `__call__` method receives a user message and appends it to history with the "user" role. It then calls `_call_llm`, which constructs the full message list by prepending the system prompt to the accumulated history. The OpenAI API receives this complete context and generates a response. That response is appended to history with the "assistant" role and returned to the caller.
 
-### Adding State
+Notice that we set `temperature=0` for deterministic responses. In production agents, you typically want reproducible behavior—the same inputs should produce the same outputs. Temperature > 0 introduces randomness that makes debugging difficult and can cause the agent to behave inconsistently across runs.
 
-Track execution metadata for debugging:
-
-```python
-class Agent:
-    def __init__(self, system_prompt: str = ""):
-        self.client = OpenAI()
-        self.system = system_prompt
-        self.messages = []
-        self.turn_count = 0
-        self.last_action = None
-        self.last_observation = None
-```
-
-### Constructor Parameters
-
-In production, you'll want more flexibility:
-
-```python
-def __init__(
-    self,
-    system_prompt: str = "",
-    model: str = "gpt-4o",
-    temperature: float = 0,
-    max_tokens: int = 1024,
-    tools: dict = None
-):
-    self.client = OpenAI()
-    self.system = system_prompt
-    self.model = model
-    self.temperature = temperature
-    self.max_tokens = max_tokens
-    self.tools = tools or {}
-    self.messages = []
-```
+This implementation creates a conversational assistant that remembers previous exchanges—but it can't act on the world. It can discuss what it might do, but it has no mechanism to actually do anything. To transform this chatbot into an agent, we need tools.
 
 ---
 
-## 4. Tool Registry Pattern
+## The Tool Registry
 
-Tools transform a text generator into an agent that acts on the world. Day 2 covered how to define tools for LLM APIs; here we implement the execution side. The registry is just a dictionary—name to callable.
+**Tools** are what transform a text generator into an agent that can take action. Day 2 covered how to define tools for LLM APIs using JSON schemas and function descriptions. Here we implement the other side of that contract: the execution machinery that runs when the LLM requests a tool call.
 
-### Basic Registry
+### Defining Tools
+
+The registry is simply a dictionary mapping names to callables. Each tool is an ordinary Python function. Best practice is to include a docstring describing what the tool does—you'll use this description in the system prompt to help the LLM understand when to invoke each tool.
 
 ```python
 def search_web(query: str) -> str:
-    """Search the web for information."""
-    # In production, call a real search API
+    """Search the web for current information on any topic."""
+    # In production, this would call a real search API
     return f"Search results for: {query}"
 
 def calculate(expression: str) -> str:
-    """Evaluate a mathematical expression."""
+    """Evaluate a mathematical expression and return the result."""
     try:
-        result = eval(expression)  # Safe only for math!
+        result = eval(expression)
         return str(result)
     except Exception as e:
-        return f"Error: {e}"
+        return f"Error evaluating expression: {e}"
 
-def get_weather(city: str) -> str:
-    """Get current weather for a city."""
-    # In production, call a weather API
-    return f"Weather in {city}: 72°F, sunny"
+def get_current_time() -> str:
+    """Get the current date and time."""
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-# The registry
 tools = {
     "search": search_web,
     "calculate": calculate,
-    "weather": get_weather,
+    "time": get_current_time
 }
 ```
 
-### Tool Execution
+A few important observations about these tool implementations:
+
+**Tools always return strings.** Even when a tool performs a calculation that produces a number, convert it to a string before returning. The result will be inserted into the conversation as text, and the LLM will interpret it as part of the ongoing dialogue. Returning non-strings can cause type errors or unexpected behavior.
+
+**Tools should handle their own errors.** Rather than raising exceptions that crash the agent, catch errors internally and return descriptive error messages. This allows the LLM to see what went wrong and potentially adapt—maybe it misformatted the arguments and can try again, or maybe it needs to approach the problem differently.
+
+**Tools should be stateless when possible.** If a tool depends on external state, it becomes harder to test and reason about. When state is necessary (like maintaining a session with an external service), document it clearly.
+
+### Executing Tools
+
+The `execute_tool` method looks up the requested action in the registry and calls the corresponding function. It handles two error cases gracefully: unknown tool names and execution failures.
 
 ```python
 def execute_tool(self, action: str, args: str) -> str:
-    """Execute a tool and return its result."""
     if action not in self.tools:
-        return f"Error: Unknown tool '{action}'. Available: {list(self.tools.keys())}"
+        available = ", ".join(self.tools.keys())
+        return f"Error: Unknown tool '{action}'. Available tools: {available}"
 
     try:
         result = self.tools[action](args)
         return str(result)
     except Exception as e:
-        return f"Error executing {action}: {e}"
+        return f"Error executing {action}: {type(e).__name__}: {e}"
 ```
 
-### Tool Documentation
+Notice how error messages are designed to help the LLM recover. When an unknown tool is requested, we list all available tools—giving the model the information it needs to correct its mistake. When execution fails, we include both the exception type and message, providing diagnostic information the model can use to understand what went wrong.
 
-The LLM needs to know what tools are available and how to use them. Include this in the system prompt:
-
-```python
-def format_tools_for_prompt(tools: dict) -> str:
-    """Generate tool documentation for the system prompt."""
-    lines = ["Available tools:"]
-    for name, func in tools.items():
-        doc = func.__doc__ or "No description"
-        lines.append(f"- {name}: {doc}")
-    return "\n".join(lines)
-```
-
-### Structured Tool Definitions
-
-For better reliability, define tools with explicit schemas:
-
-```python
-TOOL_DEFINITIONS = {
-    "search": {
-        "description": "Search the web for current information",
-        "parameters": {
-            "query": {"type": "string", "description": "The search query"}
-        },
-        "function": search_web
-    },
-    "calculate": {
-        "description": "Evaluate a mathematical expression",
-        "parameters": {
-            "expression": {"type": "string", "description": "Math expression like '2 + 2'"}
-        },
-        "function": calculate
-    }
-}
-```
+This error-as-observation pattern is crucial for robust agents. Rather than crashing on errors, we feed error information back into the conversation. The LLM can then reason about what happened and try a different approach. Many agent failures stem from treating errors as fatal rather than as information the agent can learn from.
 
 ---
 
-## 5. System Prompt Engineering
+## Crafting the System Prompt
 
-The system prompt is the contract between your code and the LLM. It must specify output format precisely—ambiguity here causes parsing failures downstream.
+The **system prompt** is the contract between your code and the LLM. Every word matters because ambiguity here causes parsing failures downstream. The model will do its best to follow your instructions, but "its best" can vary significantly based on how precisely you specify the expected format.
 
 ### The ReAct Format
 
-ReAct (Reasoning + Acting) structures output into parseable segments:
+The **ReAct format** (Reasoning + Acting) structures agent output into parseable segments. The model produces a Thought explaining its reasoning, then an Action specifying which tool to call with what arguments. After you execute the tool and provide an Observation, this cycle repeats until the model is ready to provide a final Answer.
+
+ReAct emerged from research showing that models perform better on complex tasks when they externalize their reasoning before acting. The "Thought" step isn't just for human readability—it actually improves the model's decision-making by forcing it to articulate its plan before committing to an action.
 
 ```python
-SYSTEM_PROMPT = """You are a helpful assistant that can use tools to answer questions.
+SYSTEM_PROMPT = """You are a helpful assistant with access to tools.
 
-You run in a loop of Thought, Action, Observation.
-At the end of the loop you output an Answer.
+Available tools:
+- search(query): Search the web for current information on any topic
+- calculate(expression): Evaluate a mathematical expression (e.g., "2 + 2", "sqrt(16)")
+- time(): Get the current date and time
 
-Use Thought to describe your reasoning about the question.
-Use Action to run one of the available tools.
-Observation will be the result of running the tool.
+IMPORTANT: Always respond using EXACTLY one of these two formats:
 
-Your available tools are:
+FORMAT 1 - When you need to use a tool:
+Thought: [explain your reasoning about what information you need]
+Action: tool_name(arguments)
 
-search: Search the web for information
-    Example: Action: search(current weather in Tokyo)
+FORMAT 2 - When you have enough information to answer:
+Thought: [explain how you reached your conclusion]
+Answer: [your complete response to the user]
 
-calculate: Evaluate a mathematical expression
-    Example: Action: calculate(25 * 4 + 10)
+Examples:
 
-weather: Get current weather for a city
-    Example: Action: weather(London)
+User: What is 15% of 230?
+Thought: I need to calculate 15% of 230. I'll use the calculate tool.
+Action: calculate(230 * 0.15)
 
-Always use this exact format:
+User: What time is it?
+Thought: The user wants to know the current time. I'll use the time tool.
+Action: time()
 
-Thought: [your reasoning]
-Action: [tool_name(arguments)]
-
-When you have the final answer:
-
-Thought: [your reasoning]
-Answer: [your final response to the user]
-
-Begin!
+After receiving an observation, continue with another Thought/Action or provide your final Answer.
 """
 ```
 
-### Key Elements
+Several elements make this prompt effective:
 
-**Format specification**: Show the exact structure, then examples. The model mirrors what it sees.
+**Explicit format specification.** Rather than describing the format in prose ("respond with your reasoning followed by an action"), we show the exact structure with labeled components. The model has a clear template to follow.
 
-**Tool documentation**: Every available tool with description and example invocation. Models can't use undocumented tools.
+**Enumerated tools with examples.** Each tool is listed with its name, arguments, and a brief description of what it does. Including usage examples (like "2 + 2", "sqrt(16)") helps the model understand the expected argument format.
 
-**Termination signal**: How the agent signals completion. Here, `Answer:` marks the final response.
+**Termination signal.** The `Answer:` prefix tells our parsing code that the agent is done and ready to return a final response. Without this explicit signal, we'd have to guess whether the model's output is a final answer or just intermediate reasoning.
 
-**Few-shot examples**: For complex behaviors, include complete thought-action-observation cycles in the prompt.
+**Few-shot examples.** Complete examples of the expected format dramatically improve compliance. The model sees exactly what a valid Thought/Action sequence looks like and mimics that structure.
 
-### Alternative Formats
+### JSON Actions (Alternative Approach)
 
-JSON actions trade readability for parsing reliability:
+For production systems where parsing reliability is paramount, you can require JSON-formatted actions instead of the natural-language format shown above:
 
 ```python
-SYSTEM_PROMPT = """When you want to use a tool, output JSON:
+SYSTEM_PROMPT_JSON = """You are a helpful assistant with access to tools.
 
-{"action": "tool_name", "args": {"param1": "value1"}}
+When you need to use a tool, respond with ONLY a JSON object:
+{"thought": "your reasoning", "action": "tool_name", "args": "arguments"}
 
 When you have the final answer:
-
-{"answer": "your response"}
+{"thought": "your reasoning", "answer": "your response to the user"}
 """
 ```
 
-Combined with Day 2's structured outputs, JSON format eliminates parsing failures entirely.
+JSON actions trade natural-sounding output for parsing reliability. Combined with Day 2's structured outputs, the model's response is guaranteed to be valid JSON matching your schema—no regex needed, no edge cases to handle. The downside is that the agent's reasoning becomes less readable when inspecting conversation history.
 
-### Prompt Length Considerations
-
-System prompts consume tokens on every call. Include only:
-- Core behavior instructions
-- Tool definitions with brief examples
-- Output format specification
-- Essential constraints
-
-Detailed documentation belongs in retrieval systems, not system prompts.
+The choice between natural language and JSON depends on your priorities. For learning and debugging, natural language makes it easier to understand what the agent is thinking. For production systems, JSON provides the reliability you need.
 
 ---
 
-## 6. Response Parsing Strategies
+## Parsing Model Output
 
-Parsing bridges free-form LLM output to structured execution. This is where most agent failures originate—models deviate from format, and brittle parsers break.
+**Parsing** bridges free-form LLM output to structured execution. This is where the rubber meets the road—and where most agent failures originate. Models drift from specified formats, add unexpected flourishes, or structure their output slightly differently than your parser expects.
 
 ### Regex Parsing
 
-Fast and sufficient when format compliance is high:
+Regex parsing is fast, requires no additional dependencies, and works well when format compliance is high. The key is designing patterns that are specific enough to match valid actions but tolerant enough to handle common variations.
 
 ```python
 import re
 
 def parse_action(response: str) -> tuple[str, str] | None:
-    """Extract action and arguments from response.
+    """Extract action name and arguments from model response.
 
-    Returns (action_name, arguments) or None if no action found.
+    Matches patterns like:
+    - Action: search(climate change effects)
+    - Action: calculate(2 + 2)
+    - **Action**: search(query)  (markdown formatting)
     """
-    # Match "Action: tool_name(arguments)"
     pattern = r"Action:\s*(\w+)\((.+?)\)"
-    match = re.search(pattern, response, re.IGNORECASE)
-
+    match = re.search(pattern, response, re.IGNORECASE | re.DOTALL)
     if match:
-        action = match.group(1)
-        args = match.group(2).strip()
-        return (action, args)
-
+        action_name = match.group(1).lower()
+        arguments = match.group(2).strip()
+        return (action_name, arguments)
     return None
 
 def parse_answer(response: str) -> str | None:
-    """Extract final answer from response."""
-    pattern = r"Answer:\s*(.+)"
-    match = re.search(pattern, response, re.DOTALL)
+    """Extract final answer from model response.
 
+    Matches the Answer: prefix and captures everything after it.
+    """
+    pattern = r"Answer:\s*(.+)"
+    match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
     if match:
         return match.group(1).strip()
-
     return None
 ```
 
-### Handling Variations
+Let's break down the regex patterns:
 
-Models drift from format. Robust parsers anticipate common deviations:
+For `parse_action`, the pattern `r"Action:\s*(\w+)\((.+?)\)"` matches:
+- `Action:` - The literal prefix
+- `\s*` - Any amount of whitespace
+- `(\w+)` - One or more word characters, captured as group 1 (the action name)
+- `\(` - A literal opening parenthesis
+- `(.+?)` - One or more characters, non-greedy, captured as group 2 (the arguments)
+- `\)` - A literal closing parenthesis
+
+The `re.IGNORECASE` flag handles variations like "action:" or "ACTION:". The `re.DOTALL` flag allows the pattern to work even if there are newlines in unexpected places.
+
+### Handling Format Drift
+
+Models drift from format over time and across different inputs. A model might add markdown formatting (`**Action**:`), use slightly different wording (`I'll use Action:`), or structure multi-line arguments differently than expected. Robust parsers anticipate these common deviations.
 
 ```python
-def parse_action_flexible(response: str) -> tuple[str, str] | None:
-    """Parse action with flexibility for format variations."""
+def parse_action_robust(response: str) -> tuple[str, str] | None:
+    """More tolerant action parser that handles common variations."""
 
-    # Try standard format first
+    # Try multiple patterns in order of specificity
     patterns = [
-        r"Action:\s*(\w+)\((.+?)\)",           # Action: search(query)
-        r"Action:\s*(\w+)\s*\((.+?)\)",        # Action: search (query)
-        r"\*\*Action\*\*:\s*(\w+)\((.+?)\)",   # **Action**: search(query)
-        r"action:\s*(\w+)\((.+?)\)",           # action: search(query)
+        r"Action:\s*(\w+)\((.+?)\)",           # Standard format
+        r"\*\*Action\*\*:\s*(\w+)\((.+?)\)",   # Markdown bold
+        r"Tool:\s*(\w+)\((.+?)\)",             # "Tool" instead of "Action"
+        r"Use:\s*(\w+)\((.+?)\)",              # "Use" prefix
     ]
 
     for pattern in patterns:
@@ -405,198 +313,159 @@ def parse_action_flexible(response: str) -> tuple[str, str] | None:
     return None
 ```
 
-### JSON Parsing
+This cascading approach tries the expected format first, then falls back to common variations. You can extend the pattern list based on what deviations you observe in practice.
 
-JSON format trades natural output for reliable parsing:
+### Structured Outputs (Best Reliability)
 
-```python
-import json
-
-def parse_json_response(response: str) -> dict | None:
-    """Parse JSON action from response."""
-    try:
-        # Find JSON object in response
-        start = response.find('{')
-        end = response.rfind('}') + 1
-        if start >= 0 and end > start:
-            return json.loads(response[start:end])
-    except json.JSONDecodeError:
-        pass
-    return None
-```
-
-### Using Structured Outputs
-
-For guaranteed schema conformance, use Day 2's structured outputs:
+For guaranteed reliability, use **structured outputs** from Day 2. Define a Pydantic model specifying exactly what fields you expect, and the API returns a parsed object that's guaranteed to match your schema.
 
 ```python
 from pydantic import BaseModel
+from typing import Optional
 
-class AgentAction(BaseModel):
+class AgentResponse(BaseModel):
     thought: str
-    action: str | None = None
-    args: str | None = None
-    answer: str | None = None
+    action: Optional[str] = None
+    args: Optional[str] = None
+    answer: Optional[str] = None
 
-def call_llm_structured(self) -> AgentAction:
-    """Call LLM with structured output."""
-    messages = [{"role": "system", "content": self.system}] + self.messages
-    completion = self.client.beta.chat.completions.parse(
-        model="gpt-4o",
-        messages=messages,
-        response_format=AgentAction
-    )
-    return completion.choices[0].message.parsed
+# With OpenAI's structured output support:
+completion = client.chat.completions.create(
+    model="gpt-4o",
+    messages=messages,
+    response_format={"type": "json_object"},
+)
+response = AgentResponse.model_validate_json(completion.choices[0].message.content)
 ```
 
-This eliminates parsing failures entirely—the response is guaranteed to match the schema.
+With structured outputs, parsing failures become impossible—the API guarantees valid responses matching your schema. The trade-off is that you're locked into JSON format, which some find less readable for debugging.
+
+### Parsing Strategy Comparison
+
+| Strategy | Reliability | Flexibility | Complexity | Best For |
+|----------|-------------|-------------|------------|----------|
+| Basic Regex | Medium | High | Low | Prototypes, controlled settings |
+| Robust Regex | Medium-High | High | Medium | Production with natural language |
+| JSON Extraction | High | Medium | Medium | Balance of reliability/readability |
+| Structured Outputs | Guaranteed | Low | Low | Production, high reliability needs |
 
 ---
 
-## 7. The Execution Loop
+## The Execution Loop
 
-This is the core—where OBSERVE-THINK-ACT-REFLECT becomes running code.
+This is the core of the agent—where the **OBSERVE-THINK-ACT-REFLECT** pattern from Day 1 becomes running code. Every concept we've discussed converges in this loop: message history, tool execution, parsing, and termination conditions.
 
-### Basic Loop
+### Loop Structure
+
+The loop starts by adding the user's message to history, establishing the task. Then it enters a cycle: call the LLM to get a response, append that response to history, check for termination or action, and continue accordingly.
 
 ```python
 def run(self, user_message: str, max_turns: int = 10) -> str:
-    """Run the agent until it produces an answer or hits max turns."""
+    """Execute the agent loop until completion or max turns."""
 
-    # Add user message to history
+    # Initialize with the user's request
     self.messages.append({"role": "user", "content": user_message})
 
     for turn in range(max_turns):
-        # Get LLM response
+        # THINK: Get the model's response
         response = self._call_llm()
         self.messages.append({"role": "assistant", "content": response})
 
-        # Check for final answer
-        answer = parse_answer(response)
-        if answer:
+        # Check for final answer (termination)
+        if answer := parse_answer(response):
             return answer
 
-        # Check for action
-        action_result = parse_action(response)
-        if action_result:
+        # ACT: Check for and execute action
+        if action_result := parse_action(response):
             action, args = action_result
+
+            # Execute the tool
             observation = self.execute_tool(action, args)
 
-            # Add observation to history
+            # OBSERVE/REFLECT: Add observation to history
             self.messages.append({
                 "role": "user",
                 "content": f"Observation: {observation}"
             })
         else:
-            # No action or answer—model might be confused
+            # No action or answer - nudge the model back on track
             self.messages.append({
                 "role": "user",
-                "content": "Please respond with either an Action or an Answer."
+                "content": "Please respond with an Action or Answer."
             })
 
     return "Max turns reached without answer."
 ```
 
-### Connecting to Day 1 Concepts
+Let's trace through this loop to understand how the Day 1 concepts manifest:
 
-This loop implements the OBSERVE-THINK-ACT-REFLECT pattern from Day 1:
+1. **OBSERVE**: When `_call_llm()` is called, the model receives the full message history including all previous observations. It "sees" everything that has happened so far.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                                                                  │
-│   ┌─────────┐         ┌─────────┐         ┌─────────┐          │
-│   │ OBSERVE │────────▶│  THINK  │────────▶│   ACT   │          │
-│   │         │         │         │         │         │          │
-│   │ Read    │         │ LLM     │         │ Execute │          │
-│   │ history │         │ decides │         │ tool    │          │
-│   └─────────┘         └─────────┘         └────┬────┘          │
-│        ▲                                       │                │
-│        │              ┌─────────┐              │                │
-│        │              │ REFLECT │              │                │
-│        │              │         │              │                │
-│        └──────────────│ Format  │◀─────────────┘                │
-│                       │ result  │                               │
-│                       └─────────┘                               │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+2. **THINK**: The model generates a response with a "Thought:" component, articulating its reasoning about what to do next.
 
-- **OBSERVE**: The LLM sees the full message history including previous observations
-- **THINK**: The LLM generates a "Thought:" explaining its reasoning
-- **ACT**: The agent executes the specified tool
-- **REFLECT**: The observation is formatted and added to history for the next iteration
+3. **ACT**: If the response contains an "Action:", we parse it and execute the corresponding tool. The tool performs some operation on the external world.
 
-### Streaming Execution
+4. **REFLECT**: We format the tool's output as an "Observation:" and append it to history. This observation becomes part of what the model sees on the next iteration, allowing it to incorporate new information into its reasoning.
 
-Long-running agents benefit from progress callbacks:
+### Why Observations Use "user" Role
+
+You might notice that observations are appended with `role: "user"` rather than some hypothetical "system" or "tool" role. This is intentional and worth understanding.
+
+The conversation model that LLMs use has a simple structure: messages alternate between "user" (the human) and "assistant" (the model). When we inject an observation, we're simulating a user providing new information. From the model's perspective, it said "I want to search for X" and then received a response "Here's what I found."
+
+This role choice affects how the model interprets the observation. Using "user" role signals that this is new input requiring a response. The model will naturally continue the conversation by generating another assistant message, which is exactly what we want—either another action or a final answer.
+
+### Handling Parse Failures
+
+When the model's response doesn't match either the action or answer format, we need to handle it gracefully. Simply crashing would end the agent; ignoring it would create an infinite loop. The solution is to nudge the model back toward the expected format:
 
 ```python
-def run_with_callbacks(
-    self,
-    user_message: str,
-    on_thought: callable = None,
-    on_action: callable = None,
-    on_observation: callable = None,
-    max_turns: int = 10
-) -> str:
-    """Run agent with callbacks for each step."""
+else:
+    # Response contained neither action nor answer
+    self.messages.append({
+        "role": "user",
+        "content": "Please respond with an Action or Answer."
+    })
+```
 
-    self.messages.append({"role": "user", "content": user_message})
+This message reminds the model of the expected format and gives it another chance to comply. In practice, one nudge usually suffices—the model "remembers" the format from the system prompt and corrects itself.
 
-    for turn in range(max_turns):
-        response = self._call_llm()
-        self.messages.append({"role": "assistant", "content": response})
+For persistent failures, you might track consecutive parse failures and terminate after a threshold:
 
-        # Extract and report thought
-        if on_thought:
-            thought = extract_thought(response)
-            if thought:
-                on_thought(thought)
-
-        answer = parse_answer(response)
-        if answer:
-            return answer
-
-        action_result = parse_action(response)
-        if action_result:
-            action, args = action_result
-
-            if on_action:
-                on_action(action, args)
-
-            observation = self.execute_tool(action, args)
-
-            if on_observation:
-                on_observation(observation)
-
-            self.messages.append({
-                "role": "user",
-                "content": f"Observation: {observation}"
-            })
-
-    return "Max turns reached."
+```python
+if consecutive_failures > 3:
+    return "Unable to generate valid response format."
 ```
 
 ---
 
-## 8. Error Handling & Edge Cases
+## Handling Errors Gracefully
 
-Production agents don't crash—they surface errors as observations so the LLM can adapt.
+Production agents don't crash—they surface errors as observations so the LLM can adapt. The philosophy is simple: errors are information, and information should flow to the model so it can make better decisions.
 
-### Tool Errors
+### Informative Error Messages
 
-Informative error messages let the model recover:
+When a tool fails, the error message should give the model everything it needs to understand what went wrong and potentially recover. Compare these two error responses:
+
+**Bad:** `"Error"`
+
+**Good:** `"Error: Tool 'serch' not found. Available tools: search, calculate, time. Did you mean 'search'?"`
+
+The first tells the model nothing. The second tells it exactly what happened, lists valid alternatives, and even suggests a correction. The model can use this information to retry with the correct tool name.
 
 ```python
 def execute_tool(self, action: str, args: str) -> str:
-    """Execute tool with comprehensive error handling."""
+    """Execute a tool with comprehensive error handling."""
 
     # Unknown tool
     if action not in self.tools:
-        available = ", ".join(self.tools.keys())
-        return f"Error: Unknown tool '{action}'. Available tools: {available}"
+        available = ", ".join(sorted(self.tools.keys()))
+        # Check for close matches
+        close_matches = [t for t in self.tools if t.startswith(action[0])]
+        suggestion = f" Did you mean '{close_matches[0]}'?" if close_matches else ""
+        return f"Error: Unknown tool '{action}'. Available: {available}.{suggestion}"
 
-    # Execute with error catching
+    # Execution failure
     try:
         result = self.tools[action](args)
         return str(result)
@@ -605,543 +474,407 @@ def execute_tool(self, action: str, args: str) -> str:
     except TimeoutError:
         return f"Error: {action} timed out. Try a simpler query."
     except Exception as e:
-        return f"Error: {action} failed with: {type(e).__name__}: {e}"
+        return f"Error: {action} failed with {type(e).__name__}: {e}"
 ```
 
-### Parse Failures
+### Recovery Strategies
 
-Guide the model back to expected format rather than crashing:
+Different error types suggest different recovery approaches:
+
+**Unknown tools**: List available tools. The model usually just misremembered or mistyped the name.
+
+**Invalid arguments**: Explain what arguments are expected. The model can reformulate its request.
+
+**Timeout errors**: Suggest simplifying the query. A search for "everything about climate change" might time out, while "climate change temperature impact 2024" might succeed.
+
+**Rate limits**: Indicate when the tool will be available again. The model might decide to use cached information or try a different approach.
+
+**Network errors**: Distinguish between temporary and persistent failures. A temporary glitch might resolve on retry; a persistent failure might require a different tool.
+
+### Parse Failure Handling
+
+When parsing fails, treat it as another form of error observation:
 
 ```python
-def run(self, user_message: str, max_turns: int = 10) -> str:
-    parse_failures = 0
-    max_parse_failures = 3
-
-    for turn in range(max_turns):
-        response = self._call_llm()
-        self.messages.append({"role": "assistant", "content": response})
-
-        answer = parse_answer(response)
-        if answer:
-            return answer
-
-        action_result = parse_action(response)
-        if action_result:
-            parse_failures = 0  # Reset on successful parse
-            action, args = action_result
-            observation = self.execute_tool(action, args)
-            self.messages.append({
-                "role": "user",
-                "content": f"Observation: {observation}"
-            })
-        else:
-            parse_failures += 1
-            if parse_failures >= max_parse_failures:
-                return "Unable to parse agent response. Please try rephrasing."
-
-            self.messages.append({
-                "role": "user",
-                "content": (
-                    "I couldn't parse your response. Please use the exact format:\n"
-                    "Thought: [reasoning]\n"
-                    "Action: tool_name(arguments)\n\n"
-                    "Or if you have the answer:\n"
-                    "Thought: [reasoning]\n"
-                    "Answer: [your response]"
-                )
-            })
-
-    return "Max turns reached."
+if not action_result and not answer_result:
+    self.messages.append({
+        "role": "user",
+        "content": (
+            "I couldn't parse your response. Please use exactly one of these formats:\n"
+            "- Thought: [reasoning]\n  Action: tool_name(arguments)\n"
+            "- Thought: [reasoning]\n  Answer: [final response]"
+        )
+    })
 ```
 
-### Malformed Arguments
-
-Validate before execution to provide actionable feedback:
-
-```python
-def validate_and_execute(self, action: str, args: str) -> str:
-    """Validate arguments and execute tool."""
-
-    tool_def = self.tool_definitions.get(action)
-    if not tool_def:
-        return f"Error: Unknown tool '{action}'"
-
-    # Check required parameters
-    params = tool_def.get("parameters", {})
-    if not args and params:
-        param_list = ", ".join(params.keys())
-        return f"Error: {action} requires parameters: {param_list}"
-
-    # Execute
-    try:
-        return tool_def["function"](args)
-    except Exception as e:
-        return f"Error: {e}"
-```
-
-### Infinite Loops
-
-Detect repetition patterns that indicate the agent is stuck:
-
-```python
-def detect_loop(self, window: int = 4) -> bool:
-    """Detect if agent is repeating itself."""
-    if len(self.messages) < window * 2:
-        return False
-
-    recent = [m["content"] for m in self.messages[-window:] if m["role"] == "assistant"]
-    earlier = [m["content"] for m in self.messages[-window*2:-window] if m["role"] == "assistant"]
-
-    # Check for repeated patterns
-    return recent == earlier
-```
+This explicit reminder of the expected format usually gets the model back on track. The key is being specific—don't just say "invalid format," show exactly what's expected.
 
 ---
 
-## 9. Stop Conditions & Termination
+## Stop Conditions
 
-An agent without stop conditions runs until it exhausts resources. Defense in depth: layer multiple termination checks.
+An agent without **stop conditions** runs until it exhausts resources—your API budget, your patience, or your context window. Defense in depth means layering multiple termination checks, each catching different failure modes.
 
-### Multiple Stop Conditions
+### Turn Limits
+
+The most basic stop condition is a maximum turn count. After N iterations without reaching an answer, give up. Typical values range from 5-15 depending on task complexity.
 
 ```python
-def run(
-    self,
-    user_message: str,
-    max_turns: int = 10,
-    max_tokens: int = 50000,
-    timeout_seconds: int = 300
-) -> str:
-    """Run with multiple stop conditions."""
+for turn in range(max_turns):
+    # ... agent loop ...
+    pass
 
-    import time
+return "Max turns reached without answer."
+```
+
+But turns alone aren't sufficient. A malicious or confused model could burn through 15 turns in seconds, making expensive API calls each time. You need additional checks.
+
+### Token Budget
+
+Track cumulative token usage and terminate when approaching a budget:
+
+```python
+def __init__(self, ..., max_tokens: int = 50000):
+    self.max_tokens = max_tokens
+    self.tokens_used = 0
+
+def _call_llm(self) -> str:
+    completion = self.client.chat.completions.create(...)
+    self.tokens_used += completion.usage.total_tokens
+
+    if self.tokens_used > self.max_tokens:
+        raise TokenBudgetExceeded(f"Used {self.tokens_used} tokens")
+
+    return completion.choices[0].message.content
+```
+
+### Timeout
+
+A wall-clock timeout catches agents that get stuck in slow tool executions or network delays:
+
+```python
+import time
+
+def run(self, user_message: str, max_turns: int = 10, timeout: int = 300):
     start_time = time.time()
-    total_tokens = 0
-
-    self.messages.append({"role": "user", "content": user_message})
 
     for turn in range(max_turns):
-        # Check timeout
-        elapsed = time.time() - start_time
-        if elapsed > timeout_seconds:
-            return f"Timeout after {elapsed:.0f} seconds."
+        if time.time() - start_time > timeout:
+            return "Execution timeout reached."
+        # ... rest of loop ...
+```
 
-        # Check token budget
-        if total_tokens > max_tokens:
-            return f"Token budget exceeded ({total_tokens} tokens)."
+### Loop Detection
 
-        # Check for loops
-        if self.detect_loop():
-            return "Agent appears stuck. Please try a different approach."
+Sophisticated agents can get stuck in loops, repeating the same actions without making progress. Detect this by comparing recent messages:
 
-        # Normal execution
-        response, tokens_used = self._call_llm_with_usage()
-        total_tokens += tokens_used
+```python
+def _detect_loop(self) -> bool:
+    """Check if the agent is repeating itself."""
+    if len(self.messages) < 6:
+        return False
 
-        self.messages.append({"role": "assistant", "content": response})
+    recent_assistant_msgs = [
+        m["content"] for m in self.messages[-6:]
+        if m["role"] == "assistant"
+    ]
 
-        answer = parse_answer(response)
-        if answer:
-            return answer
+    # Check for exact repetition
+    if len(recent_assistant_msgs) >= 2:
+        if recent_assistant_msgs[-1] == recent_assistant_msgs[-2]:
+            return True
 
-        # ... continue with action execution
-
-    return "Max turns reached."
+    return False
 ```
 
 ### Graceful Termination
 
-When stopping early, extract partial value rather than returning empty-handed:
+When you must stop early, don't just return an error message. Ask the model to provide its best answer given what it's learned:
 
 ```python
-def terminate(self, reason: str) -> str:
-    """Terminate execution with a summary."""
-
-    # Try to get a partial answer from the LLM
+if turn >= max_turns - 1:
+    # Final turn - force an answer
     self.messages.append({
         "role": "user",
-        "content": f"We need to stop here ({reason}). Based on what you've learned so far, please provide your best answer."
+        "content": (
+            "You've reached the maximum number of turns. "
+            "Please provide your best answer based on what you've learned so far."
+        )
     })
-
     response = self._call_llm()
-    answer = parse_answer(response)
+    if answer := parse_answer(response):
+        return answer
+    # Extract whatever content we can
+    return response
 
-    if answer:
-        return f"{answer}\n\n(Note: {reason})"
-
-    return f"Unable to complete. {reason}"
+return "Unable to complete task."
 ```
 
 ---
 
-## 10. Putting It All Together
+## The Complete Implementation
 
-The complete implementation—everything from sections 3-9 unified:
+Here's everything unified—a working agent in under 100 lines that incorporates all the concepts we've discussed. This implementation is deliberately minimal but fully functional. You can use it as-is for simple tasks or extend it for more complex requirements.
 
 ```python
 import re
 from openai import OpenAI
 
 class Agent:
-    """A minimal but complete agent implementation."""
-
-    def __init__(
-        self,
-        system_prompt: str,
-        tools: dict = None,
-        model: str = "gpt-4o",
-        temperature: float = 0
-    ):
+    def __init__(self, system_prompt: str, tools: dict = None, model: str = "gpt-4o"):
         self.client = OpenAI()
         self.system = system_prompt
         self.tools = tools or {}
         self.model = model
-        self.temperature = temperature
         self.messages = []
 
     def _call_llm(self) -> str:
-        """Make LLM API call."""
         messages = [{"role": "system", "content": self.system}] + self.messages
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            temperature=self.temperature
-        )
-        return completion.choices[0].message.content
+        return self.client.chat.completions.create(
+            model=self.model, messages=messages, temperature=0
+        ).choices[0].message.content
 
-    def _parse_action(self, response: str) -> tuple[str, str] | None:
-        """Extract action from response."""
-        match = re.search(r"Action:\s*(\w+)\((.+?)\)", response, re.IGNORECASE)
-        if match:
-            return (match.group(1).lower(), match.group(2).strip())
-        return None
+    def _parse_action(self, text: str) -> tuple[str, str] | None:
+        match = re.search(r"Action:\s*(\w+)\((.+?)\)", text, re.IGNORECASE)
+        return (match.group(1).lower(), match.group(2).strip()) if match else None
 
-    def _parse_answer(self, response: str) -> str | None:
-        """Extract final answer from response."""
-        match = re.search(r"Answer:\s*(.+)", response, re.DOTALL)
-        if match:
-            return match.group(1).strip()
-        return None
+    def _parse_answer(self, text: str) -> str | None:
+        match = re.search(r"Answer:\s*(.+)", text, re.DOTALL)
+        return match.group(1).strip() if match else None
 
     def _execute_tool(self, action: str, args: str) -> str:
-        """Execute a tool and return result."""
         if action not in self.tools:
-            available = ", ".join(self.tools.keys())
-            return f"Error: Unknown tool '{action}'. Available: {available}"
-
+            return f"Error: Unknown tool '{action}'. Available: {list(self.tools.keys())}"
         try:
             return str(self.tools[action](args))
         except Exception as e:
             return f"Error: {action} failed: {e}"
 
     def run(self, user_message: str, max_turns: int = 10) -> str:
-        """Run the agent until completion."""
         self.messages.append({"role": "user", "content": user_message})
 
-        for turn in range(max_turns):
+        for _ in range(max_turns):
             response = self._call_llm()
             self.messages.append({"role": "assistant", "content": response})
 
-            # Check for final answer
-            answer = self._parse_answer(response)
-            if answer:
+            if answer := self._parse_answer(response):
                 return answer
 
-            # Check for action
-            action_result = self._parse_action(response)
-            if action_result:
-                action, args = action_result
-                observation = self._execute_tool(action, args)
-                self.messages.append({
-                    "role": "user",
-                    "content": f"Observation: {observation}"
-                })
+            if result := self._parse_action(response):
+                action, args = result
+                obs = self._execute_tool(action, args)
+                self.messages.append({"role": "user", "content": f"Observation: {obs}"})
             else:
-                self.messages.append({
-                    "role": "user",
-                    "content": "Please respond with an Action or Answer."
-                })
+                self.messages.append({"role": "user", "content": "Respond with Action or Answer."})
 
-        return "Max turns reached without answer."
-
-    def reset(self):
-        """Clear conversation history."""
-        self.messages = []
+        return "Max turns reached."
 ```
 
-### Example Usage
+### Using the Agent
+
+To use this agent, define your tools, write a system prompt specifying the format, create an instance, and call `run()`:
 
 ```python
 # Define tools
 def search(query: str) -> str:
-    return f"Top result for '{query}': Wikipedia article about {query}"
+    return f"Results for '{query}': [relevant information here]"
 
-def calculate(expr: str) -> str:
-    return str(eval(expr))
+def calculate(expression: str) -> str:
+    try:
+        return str(eval(expression))
+    except:
+        return "Invalid expression"
 
-# Create system prompt
-PROMPT = """You are a helpful assistant with access to tools.
+tools = {"search": search, "calculate": calculate}
 
-Available tools:
-- search(query): Search the web
-- calculate(expression): Do math
+# System prompt (use the SYSTEM_PROMPT from earlier)
+prompt = SYSTEM_PROMPT
 
-Use this format:
-Thought: [your reasoning]
-Action: tool_name(arguments)
-
-When done:
-Thought: [your reasoning]
-Answer: [final response]
-"""
-
-# Create and run agent
-agent = Agent(
-    system_prompt=PROMPT,
-    tools={"search": search, "calculate": calculate}
-)
-
-result = agent.run("What is 25 * 47, and who invented calculus?")
+# Create and run
+agent = Agent(system_prompt=prompt, tools=tools)
+result = agent.run("What is the square root of 144?")
 print(result)
 ```
 
 ---
 
-## 11. Testing Your Agent
+## Testing Your Agent
 
-Agents are non-deterministic—the same input can produce different execution paths. Test at multiple levels: unit tests for deterministic components, integration tests for behavioral properties.
+Agents are **non-deterministic**—the same input can produce different execution paths depending on subtle variations in model output. This makes testing challenging but not impossible. Test at multiple levels to build confidence.
 
 ### Unit Testing Tools
 
+Test each tool function independently of the agent. These tests are deterministic and fast, giving you high confidence in the building blocks:
+
 ```python
-import pytest
+def test_calculate_valid():
+    assert calculate("2 + 2") == "4"
+    assert calculate("10 * 5") == "50"
+    assert calculate("100 / 4") == "25.0"
 
-def test_calculate_tool():
-    result = calculate("2 + 2")
-    assert result == "4"
-
-def test_calculate_error():
-    result = calculate("invalid")
-    assert "Error" in result
+def test_calculate_invalid():
+    result = calculate("not math")
+    assert "Error" in result or "error" in result.lower()
 
 def test_search_returns_string():
-    result = search("python")
+    result = search("test query")
     assert isinstance(result, str)
     assert len(result) > 0
 ```
 
-### Testing Parsing
+### Unit Testing Parsers
+
+Test your parsing functions with known inputs. Create a suite of test cases covering normal operation and edge cases:
 
 ```python
-def test_parse_action():
-    response = "Thought: I need to search\nAction: search(python tutorials)"
-    action, args = parse_action(response)
-    assert action == "search"
-    assert args == "python tutorials"
+def test_parse_action_standard():
+    response = "Thought: I need to search\nAction: search(climate change)"
+    result = parse_action(response)
+    assert result == ("search", "climate change")
 
-def test_parse_action_no_match():
-    response = "I'm not sure what to do."
+def test_parse_action_with_whitespace():
+    response = "Action:  search( query with spaces )"
+    result = parse_action(response)
+    assert result == ("search", "query with spaces")
+
+def test_parse_action_missing():
+    response = "Thought: I'm thinking about this"
     result = parse_action(response)
     assert result is None
 
 def test_parse_answer():
-    response = "Thought: I have all info\nAnswer: The answer is 42."
-    answer = parse_answer(response)
-    assert answer == "The answer is 42."
+    response = "Thought: I have the info\nAnswer: The answer is 42."
+    result = parse_answer(response)
+    assert result == "The answer is 42."
 ```
 
 ### Integration Testing
 
-```python
-def test_agent_simple_calculation():
-    agent = Agent(system_prompt=PROMPT, tools={"calculate": calculate})
-    result = agent.run("What is 100 / 4?")
-    assert "25" in result
+Full agent tests are inherently less deterministic. Focus on behavioral properties rather than exact outputs:
 
-def test_agent_uses_correct_tool():
-    agent = Agent(system_prompt=PROMPT, tools={"search": search, "calculate": calculate})
+```python
+def test_agent_calculation():
+    agent = Agent(system_prompt=SYSTEM_PROMPT, tools=tools)
+    result = agent.run("What is 15 * 7?")
+    assert "105" in result
+
+def test_agent_uses_tool():
+    agent = Agent(system_prompt=SYSTEM_PROMPT, tools=tools)
     agent.run("Search for information about Python")
 
-    # Check that search was called
-    actions = [m for m in agent.messages if "Observation:" in m.get("content", "")]
-    assert len(actions) > 0
+    # Verify search tool was called by checking history
+    messages = [m["content"] for m in agent.messages]
+    assert any("Observation:" in m for m in messages)
 
-def test_agent_handles_unknown_tool():
-    agent = Agent(system_prompt=PROMPT, tools={"calculate": calculate})
-    # Force an attempt to use unknown tool
-    agent.messages = [
-        {"role": "user", "content": "test"},
-        {"role": "assistant", "content": "Action: unknown_tool(test)"}
-    ]
-    # Agent should handle gracefully
-    result = agent.run("continue")
-    # Should not crash
+def test_agent_terminates():
+    agent = Agent(system_prompt=SYSTEM_PROMPT, tools=tools)
+    result = agent.run("Hello", max_turns=5)
+    # Agent should respond without timing out
+    assert result != "Max turns reached."
 ```
 
-### Behavioral Testing
+### Logging for Debugging
 
-For complex behaviors, use eval datasets:
+Add logging to understand agent behavior during development:
 
 ```python
-TEST_CASES = [
-    {
-        "input": "What is 15% of 200?",
-        "expected_tool": "calculate",
-        "expected_contains": "30"
-    },
-    {
-        "input": "Who wrote Romeo and Juliet?",
-        "expected_tool": "search",
-        "expected_contains": "Shakespeare"
-    }
-]
+import logging
 
-def test_agent_behaviors():
-    for case in TEST_CASES:
-        agent = Agent(system_prompt=PROMPT, tools=tools)
-        result = agent.run(case["input"])
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-        assert case["expected_contains"].lower() in result.lower(), \
-            f"Expected '{case['expected_contains']}' in response to '{case['input']}'"
+def run(self, user_message: str, max_turns: int = 10) -> str:
+    logger.debug(f"Starting agent with message: {user_message}")
+
+    for turn in range(max_turns):
+        logger.debug(f"Turn {turn + 1}/{max_turns}")
+        response = self._call_llm()
+        logger.debug(f"LLM response: {response[:200]}...")
+
+        # ... rest of loop
 ```
 
 ---
 
-## 12. Common Pitfalls
+## Common Pitfalls
 
-These failure modes appear repeatedly in agent implementations.
+Several failure modes appear repeatedly in agent implementations. Knowing them in advance helps you avoid the traps.
 
-### Pitfall 1: Overly Complex Prompts
+### Overly Complex Prompts
 
-Verbose prompts dilute signal. Start minimal:
+When your agent misbehaves, the temptation is to add more instructions: "Think carefully before acting," "Consider multiple perspectives," "Double-check your reasoning." These additions rarely help and often hurt.
 
-```python
-# Bad: Too much detail
-PROMPT = """You are an extremely helpful assistant that always thinks carefully
-before responding. You have access to the following tools which you should use
-whenever they would be helpful. Make sure to explain your reasoning thoroughly
-and consider multiple perspectives before arriving at your final answer..."""
+Long, complex prompts dilute the signal. The model has to parse through paragraphs of instructions to find the format specification it actually needs. Important directives get lost among the verbiage. The model may become confused about priorities.
 
-# Good: Clear and focused
-PROMPT = """You are a helpful assistant with tools.
+**Fix:** Start minimal. You can always add complexity if the simple version fails, but start with the bare essentials: available tools, required format, and termination conditions. If the agent fails, add one thing at a time and test.
 
-Tools:
-- search(query): Search the web
-- calculate(expr): Do math
+### Poor Error Messages
 
-Format:
-Thought: [reasoning]
-Action: tool(args)
+Error messages are instructions to the agent about what went wrong. "Error" tells it nothing. "Tool failed" is barely better. The agent needs specific information to recover.
 
-When done:
-Answer: [response]
-"""
-```
+**Fix:** Every error message should answer three questions: What happened? Why did it happen? What should the agent do instead?
 
-### Pitfall 2: Poor Error Messages
+### Unbounded Context
 
-Generic errors don't help the model recover:
+Message history grows indefinitely. Eventually you'll exceed the model's context limit, causing API errors. Before that, you'll hit performance degradation as the model struggles to pay attention to earlier messages.
 
-```python
-# Bad
-return "Error"
+**Fix:** Implement a context management strategy: sliding windows (keep last N turns), summarization (compress old context), or retrieval (store history externally). For learning purposes, full history is fine, but production agents need bounds.
 
-# Good
-return f"Error: Tool '{action}' not found. Available tools: {list(tools.keys())}"
-```
+### Missing Stop Conditions
 
-### Pitfall 3: Unbounded Context
+An agent without stop conditions loops forever, consuming your API credits until you manually kill it. This happens more often than you'd expect—a subtle parsing failure can cause the agent to never recognize its own answers.
 
-Message history grows indefinitely:
+**Fix:** Layer multiple stop conditions: turn limits, token budgets, timeouts, and loop detection. Any one of these should be sufficient; together they're robust.
 
-```python
-# Bad: No limit
-self.messages.append(response)
+### Ignoring Tool Latency
 
-# Good: Sliding window
-MAX_HISTORY = 20
-self.messages = self.messages[-MAX_HISTORY:]
-```
+Network calls take time. A search API might respond in 100ms or 10 seconds depending on load. Without timeouts, your agent hangs indefinitely on a slow tool.
 
-### Pitfall 4: Missing Stop Conditions
-
-Agents can loop forever:
-
-```python
-# Bad: Only max_turns
-while not done:
-    # Could run forever
-
-# Good: Multiple conditions
-while (
-    turns < max_turns and
-    tokens < max_tokens and
-    not timeout_reached and
-    not loop_detected
-):
-    # Bounded execution
-```
-
-### Pitfall 5: Ignoring Tool Latency
-
-Network calls are slow. Handle appropriately:
-
-```python
-# Bad: No timeout
-result = api_call()
-
-# Good: Timeout handling
-try:
-    result = api_call(timeout=30)
-except TimeoutError:
-    result = "Tool timed out. Try a simpler query."
-```
+**Fix:** Add timeouts to tool execution. Consider providing progress callbacks for long-running agents so users know something is happening. Test your agent with artificially slow tools to understand the experience.
 
 ---
 
-## 13. When to Use Frameworks Instead
+## When to Use Frameworks Instead
 
-Raw implementation teaches fundamentals. Frameworks trade customization for velocity and battle-tested patterns.
+Building from scratch teaches fundamentals that make you effective with any tool. But frameworks exist for good reasons. Understanding when to use each approach is part of the expertise you're developing.
 
 ### Use Frameworks When:
 
-**Complex state management**: LangGraph's checkpointing handles state persistence across sessions, something that's tedious to implement from scratch.
+**You need complex state management.** LangGraph's checkpointing handles persistence across conversations, resumption after failures, and branching execution paths. Building these features yourself is tedious and error-prone.
 
-**Multi-agent coordination**: CrewAI and AutoGen have tested patterns for agent-to-agent communication and task delegation.
+**You're building multi-agent systems.** CrewAI and AutoGen have battle-tested patterns for agent-to-agent communication, task delegation, and coordination. Getting these interactions right from scratch requires significant effort.
 
-**Production observability**: LangSmith and similar tools integrate seamlessly with their frameworks for tracing and debugging.
+**You need production observability.** LangSmith integrates with LangChain to provide tracing, debugging, and monitoring. Building equivalent tooling yourself is a major undertaking.
 
-**Rapid prototyping**: Frameworks let you test ideas quickly before investing in custom implementation.
+**You're prototyping rapidly.** Frameworks let you test ideas quickly, exploring different architectures before committing to a custom implementation.
 
-**Team collaboration**: Standardized abstractions help teams work together consistently.
+**Your team needs standardization.** Shared abstractions help teams collaborate effectively. When everyone uses the same patterns, code reviews and knowledge transfer become easier.
 
-### Continue Building From Scratch When:
+### Build from Scratch When:
 
-**Learning**: Understanding internals helps you use any tool more effectively.
+**You're learning.** There's no substitute for implementing the fundamentals yourself. The understanding you gain makes you effective with any framework.
 
-**Simple agents**: A search-and-answer agent doesn't need LangGraph's complexity.
+**The agent is simple.** A search-and-answer agent doesn't need LangGraph's complexity. Adding a framework would introduce overhead without benefit.
 
-**Maximum control**: Custom requirements might fight framework assumptions.
+**You need maximum control.** Custom requirements might fight framework assumptions. If you're constantly working around framework limitations, you'd be better off without it.
 
-**Minimal dependencies**: Production systems benefit from fewer moving parts.
+**You're minimizing dependencies.** Production systems benefit from fewer moving parts. Each dependency is a potential source of bugs, security issues, and maintenance burden.
 
-### Hybrid Approach
+### Decision Framework
 
-Often the best path combines both:
+| Factor | Build from Scratch | Use Framework |
+|--------|-------------------|---------------|
+| Agent complexity | Simple, single-purpose | Multi-agent, stateful |
+| Control requirements | Maximum customization | Defaults acceptable |
+| Dependency tolerance | Minimal preferred | Framework churn acceptable |
+| Team context | Solo or small team | Larger team needs standardization |
+| Use case | Learning, production core | Rapid prototyping, complex orchestration |
 
-```python
-# Use framework for orchestration, raw code for custom tools
-from langgraph import StateGraph
+### The Hybrid Approach
 
-def custom_tool(state):
-    # Your from-scratch implementation
-    agent = Agent(system=PROMPT, tools=tools)
-    return agent.run(state["query"])
+Often the best path combines both approaches: use a framework for orchestration while implementing custom tools with raw code. LangGraph handles state management and execution flow while your tools make direct API calls without framework wrapping.
 
-# Framework handles the workflow
-graph = StateGraph()
-graph.add_node("custom_agent", custom_tool)
-```
+This hybrid approach gives you framework benefits where they matter (state, coordination, observability) while maintaining control where you need it (tool implementation, error handling, custom logic).
 
 Understanding the raw loop makes you effective with any tool—and helps you know when you don't need one.
 
@@ -1149,14 +882,20 @@ Understanding the raw loop makes you effective with any tool—and helps you kno
 
 ## Summary
 
-An agent is simpler than the frameworks suggest:
+An agent is simpler than the frameworks suggest. Strip away the abstractions and you find a loop that calls an API, parses responses, executes tools, and repeats.
 
-1. **Message history** → the OBSERVE mechanism from Day 1
-2. **System prompt** → defines output contract for parsing
-3. **Tool registry** → executes Day 2's function calls
-4. **Parse logic** → bridges free-form output to structured execution
-5. **Execution loop** → THINK-ACT-REFLECT made concrete
+**Message history** implements the OBSERVE mechanism from Day 1. By accumulating conversation context, the agent "remembers" what it has done and learned.
 
-Under 150 lines for a working implementation. Add error handling, stop conditions, and tests for production.
+**The system prompt** defines the output contract. Precise format specifications make parsing reliable. Ambiguous prompts produce ambiguous outputs.
 
-Master the raw form and frameworks become tools you choose rather than abstractions you depend on.
+**The tool registry** executes Day 2's function calls. Tools are just Python functions; the intelligence lies in how the LLM decides when to invoke them.
+
+**Parse logic** bridges free-form output to structured execution. Regex works for prototypes; structured outputs guarantee reliability.
+
+**The execution loop** makes THINK-ACT-REFLECT concrete. Each iteration adds to history, calls the model, parses the response, executes actions, and checks for termination.
+
+Under 100 lines for a working implementation. Add error handling for graceful failure recovery. Add stop conditions to prevent runaway execution. Add tests for confidence in your components.
+
+Master the raw form and frameworks become tools you choose deliberately rather than abstractions you depend on blindly. You'll know when a framework helps and when it's unnecessary overhead. You'll debug framework issues by recognizing which primitive is misbehaving. You'll extend frameworks with custom components because you understand what they need to provide.
+
+This is the foundation. Day 4 builds on it, exploring how LangGraph adds state management and sophisticated control flow to these fundamental patterns.
